@@ -1,0 +1,19 @@
+# .gitignore: files git should NOT store in the version history.
+
+# Dependencies downloaded by npm. Large, and can be reinstalled any time with npm install.
+node_modules/
+
+# Local files holding API keys. These must never be uploaded (step 6).
+.env
+.env.local
+
+# Media copied in by npm run build:assets (about 160 MB). Rebuilt from the
+# dataset snapshot any time, so it does not belong in the version history.
+assets/
+
+# Intermediate cache of the offline tools (step 2)
+tools/.cache/
+
+# OS and editor clutter
+.DS_Store
+Thumbs.db

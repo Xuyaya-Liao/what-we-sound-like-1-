@@ -1,0 +1,10 @@
+{
+  "_about": "Images or sounds to leave out of the site, with the reason. Keys can be an item id (one clip) or a source id (every clip cut from that recording), as listed in the snapshot's manifest.csv. npm run build:assets skips them. This is a quick fix until the dataset review removes them for good.",
+  "excluded": {
+    "fs-860231": "Taiwan Alishan dawn ambience: people can be heard talking. It matched almost every voice (the most speech-like clip in the library). Heard 2026-11-11.",
+    "fs-209818": "Icy Water - Cracking and Break through: voices throughout the recording. Heard 2026-11-11.",
+    "wc-132339511": "auto: AST heard \"Speech\" (0.84) · rain · बारिश.ogg",
+    "fs-854292": "auto: AST heard \"Speech\" (0.40) · wetland_ambience · Rosentreterbecken_WetlandField_Ambiance_1",
+    "wc-25624861": "auto: AST heard \"Speech\" (0.23) · rain · Regen in de tent - SoundCloud - luc de bruijn.ogg"
+  }
+}

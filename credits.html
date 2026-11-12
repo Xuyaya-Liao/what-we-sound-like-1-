@@ -1,0 +1,30 @@
+<!doctype html>
+<!--
+  credits.html: lists every image and sound in the piece, with author and license.
+  CC BY material legally requires this attribution, so this page ships with the site.
+  During development it is also the easiest way to look through the whole library.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Library and Credits</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body class="scroll-page">
+  <main class="credits">
+    <p class="eyebrow"><a href="./index.html">← What We Sound Like, What We Say</a></p>
+    <h1>Library and Credits</h1>
+    <p id="summary" class="subtitle">Loading…</p>
+
+    <h2>Images, by label</h2>
+    <p class="hint">The LLM chooses one of these labels; an image under that label is shown.</p>
+    <div id="images"></div>
+
+    <h2>Sounds, by category</h2>
+    <p class="hint">Sounds are matched by how they sound, not by category. Categories are listed for reference.</p>
+    <div id="sounds"></div>
+  </main>
+  <script type="module" src="./src/credits.js"></script>
+</body>
+</html>

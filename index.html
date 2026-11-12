@@ -1,0 +1,51 @@
+<!doctype html>
+<!--
+  index.html: the entry point of the website.
+  This is the first file the browser reads. It only does three things:
+    1. Load the styles (style.css) and the libraries we use (p5.js)
+    2. Lay out the basic page elements (canvas container, start screen)
+    3. Load our own program (src/main.js)
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>What We Sound Like, What We Say</title>
+  <link rel="stylesheet" href="./style.css">
+
+  <!-- p5.js draws the visuals. It is loaded from a CDN (a public library host).
+       The version (2.3.4) is pinned, the same one the demo used, so an automatic
+       library update can never change how the piece looks. -->
+  <script src="https://cdn.jsdelivr.net/npm/p5@2.3.4/lib/p5.min.js"></script>
+</head>
+<body>
+  <!-- The p5 canvas goes into this box. It fills the window, on the bottom layer. -->
+  <div id="stage"></div>
+
+  <!-- Start screen, layered on top of the canvas.
+       "Begin" asks for microphone permission. Browsers only allow the microphone
+       and sound playback after the visitor clicks something, which is why the
+       piece needs this button at all.
+       Begin and the file input stay disabled until the loading bar is full:
+       every model has to be downloaded and started first (src/main.js). -->
+  <main id="start-screen">
+    <p class="eyebrow">ML FOR ARTISTS AND DESIGNERS</p>
+    <h1>What We Sound Like,<br>What We Say</h1>
+    <p class="subtitle">One voice, heard two ways: how it sounds, and what it says.</p>
+    <button id="start-button" type="button" disabled>Begin</button>
+    <label class="choose-recording">or use a recording instead of the microphone
+      <input id="recording-input" type="file" accept="audio/*" disabled>
+    </label>
+    <div id="loading" class="loading" role="progressbar" aria-label="Loading the models"
+         aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <div id="loading-fill" class="loading-fill"></div>
+    </div>
+    <p id="status" role="status">Loading…</p>
+    <a class="small-link" href="./credits.html">Library and credits</a>
+  </main>
+
+  <!-- Our own program. type="module" makes it a "module", which means it can
+       use import to pull in code from other files (see the first line of src/main.js). -->
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

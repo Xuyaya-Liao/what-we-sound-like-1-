@@ -1,0 +1,29 @@
+{
+  "_about": "The label table for the 'what we say' path. The LLM sees exactly this list (id, name, description) and must answer with one id. The fallback text embedding and the asset build script read it too. Edit freely; re-run npm run build:assets afterwards.",
+  "labels": [
+    { "id": "storm", "name": "Storm", "description": "dark thunderstorm clouds and an approaching storm over a natural landscape" },
+    { "id": "still_water", "name": "Still water", "description": "a still lake or pond with calm water and a mirror-like reflection" },
+    { "id": "flowing_water", "name": "Flowing water", "description": "moving river water, rapids or a stream running over rocks" },
+    { "id": "wind_vegetation", "name": "Wind in vegetation", "description": "windswept trees or grass visibly bending in strong wind" },
+    { "id": "coast", "name": "Coast and surf", "description": "ocean surf or breaking waves along a rocky or sandy coastline" },
+    { "id": "forest", "name": "Forest", "description": "a forest, woodland path, or dense canopy, green, alive, peaceful" },
+    { "id": "desert", "name": "Desert and dunes", "description": "desert dunes, dry sand, and an arid open landscape, hot, dry, endless" },
+    { "id": "mountain", "name": "Mountains", "description": "prominent mountain ridges or alpine peaks, huge, tall" },
+    { "id": "snow_ice", "name": "Snow and ice", "description": "a landscape dominated by snow, a glacier, or frozen ice, cold, silent" },
+    { "id": "fog", "name": "Fog", "description": "thick fog or mist obscuring a landscape, mystery, invisible" },
+    { "id": "geothermal", "name": "Geothermal", "description": "a geothermal landscape with a geyser eruption or a colorful hot spring" },
+    { "id": "aurora", "name": "Aurora", "description": "aurora borealis glowing above a natural landscape at night" },
+    { "id": "volcano", "name": "Volcano and lava", "description": "an active volcano with glowing lava, lava flows, or eruption plumes" },
+    { "id": "wetland", "name": "Wetland", "description": "marshes, wetland reeds, and shallow water, biodiversity, ecosystem" },
+    { "id": "grassland", "name": "Grassland", "description": "a wide natural prairie or grassland landscape" },
+    { "id": "autumn", "name": "Autumn foliage", "description": "autumn woodland with orange and red foliage, falling, colorful, golden" },
+    { "id": "lightning", "name": "Lightning", "description": "visible lightning bolts striking over a natural landscape" },
+    { "id": "cave", "name": "Cave", "description": "the inside of a natural cave with rock formations, dark, scary" },
+    { "id": "night_sky", "name": "Night sky", "description": "a starry night sky or the Milky Way over nature" },
+    { "id": "waterfall", "name": "Waterfall", "description": "a distinct waterfall dropping from a cliff or rocky ledge" },
+    { "id": "wildfire", "name": "Wildfire", "description": "a wildfire with visible flames in forest or grassland" },
+    { "id": "tide_pool", "name": "Tide pool", "description": "a natural tide pool among rocks in the intertidal zone" },
+    { "id": "pollinators", "name": "Pollinators", "description": "a bee, butterfly, or other pollinating insect on a flower, essential, vital" },
+    { "id": "wild_birds", "name": "Wild birds", "description": "a wild bird in its natural habitat, free, flying, natural" }
+  ]
+}
