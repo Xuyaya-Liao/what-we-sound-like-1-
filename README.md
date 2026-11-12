@@ -46,6 +46,8 @@ tests, put a recording in the address bar, and **Begin** plays that instead:
 
 Both are synthetic voices (Windows text-to-speech) with a 7-second pause in the middle,
 to check that quiet rounds are detected. Any audio file in `test-audio/` works the same way.
+Add `&loop` to play the recording over and over, for long tests:
+<http://localhost:5510/?input=test-audio/zh-storm-water.wav&loop>.
 
 Press **D** to show or hide the debug panel. The top shows the input, the model status
 and the sound playing now. Below is one block per 5-second round: when it started, how
@@ -165,6 +167,40 @@ Tested on 2026-11-12. The code is in `src/image/image-choice.js`.
 The images come from `data/manifest.json`, which lists each image's label. To add or move
 images, change the assets and re-run `npm run build:assets`.
 
+### Timing and stability (step 8)
+
+The debug panel shows how the piece is keeping up, in a summary line under "♪ latest":
+
+```
+10:12 · 122 rounds (94 voice) · sound avg 0.6 s, max 0.8 · image avg 1.4 s, max 4.3 · skipped 0 · page memory 63 MB
+```
+
+Times count from the moment a 5-second segment is cut: **sound** until the nature sound
+starts, **image** until the image starts fading in (with the LLM on, this includes its
+answer). Each round's head line shows its own times too. A path that takes longer than a
+round makes the next round **skip** that path, rather than queueing rounds up and falling
+further and further behind; "skipped" counts these. "page memory" (Chrome and Edge only)
+counts the page, not the models' workers.
+
+What keeps a long session steady:
+
+- **Waiting for the LLM doesn't hold up Whisper.** Whisper is free for the next round as soon
+  as it has written the text; the LLM's answer (up to 4 s) arrives on its own.
+- **An older sentence never replaces a newer image.** If a later round's label is settled
+  first, the earlier one's answer is noted ("a newer sentence was understood first") and dropped.
+- **Decoded nature sounds are capped** at the 40 most recently used (about 1 MB each), so
+  memory doesn't keep growing as more of the library gets played.
+- **The sound engine restarts itself** if something outside the page stops it (for example
+  the system switching audio devices), with a note in the debug panel.
+
+Tested on 2026-11-12: 10 minutes of the looping Mandarin recording (LLM off, Whisper small
+on the GPU): 122 rounds, 0 skipped, sound 0.6 s on average (max 0.8), image 1.4 s (max 4.3,
+the very first round while Whisper warms up), page memory between 33 and 66 MB.
+
+Still to test with a real microphone and **speakers** (not headphones): stay silent for a
+minute while nature sounds play. The rounds should stay "quiet". If the microphone picks the
+nature sounds up as "voice", the piece keeps answering itself.
+
 ## What each file is for
 
 ```
@@ -176,6 +212,7 @@ what-we-sound-like/
 │  ├─ main.js          Main entry of the piece; every part is plugged in from here
 │  ├─ config.js        All adjustable settings (rhythm, model names…)
 │  ├─ library.js       Loads data/manifest.json
+│  ├─ session-stats.js Counts rounds, timings and skips for the debug panel's summary line
 │  ├─ credits.js       Fills the credits page
 │  ├─ audio/
 │  │  ├─ capture.js         Microphone or recording → one segment every 5 s
@@ -333,7 +370,7 @@ more representative: add WAV files there and run `npm run build:vectors`.
 - [x] Step 5 · Meaning path (local)
 - [x] Step 6 · Meaning path (LLM) (the relay that hides the key moves to step 12)
 - [x] Step 7 · Image selection
-- [ ] Step 8 · Timing and stability
+- [ ] Step 8 · Timing and stability (built and run for 10 minutes; the speaker test is left)
 - [ ] Step 9 · Experiment logging
 - [ ] Step 10 · Visuals v1 (minimum deliverable)
 - [ ] Step 11 · Visual iterations + dataset finalization

@@ -184,7 +184,7 @@ export function createDebugPanel() {
 
     // A typed sentence gets a block of its own, with the same handle as a round
     addTyped(text) {
-      const handle = addBlock(make("div", "typed", "round-head"));
+      const handle = addBlock(make("div", "typed ", "round-head"));
       handle.speech({ text, typed: true });
       return handle;
     },
