@@ -7,6 +7,7 @@
 //   step 6: meaning path (LLM) — the LLM chooses the label; the local one is the fallback
 //   step 7: images — the label's next image (shuffle bag) fades in
 //   step 8: timing and stability — how long each round takes, nothing piles up
+//   step 9: experiment log — every round's results, downloadable as JSON or CSV
 // The two paths run at the same time, each in its own Web Worker.
 
 // import: take things other files export.
@@ -23,6 +24,7 @@ import { createImageChooser } from "./image/image-choice.js";
 import { createWorkerClient } from "./workers/worker-client.js";
 import { createDebugPanel } from "./ui/debug-panel.js";
 import { createSessionStats } from "./session-stats.js";
+import { createRoundLog, downloadText } from "./log/round-log.js";
 
 const startScreen = document.getElementById("start-screen");
 const startButton = document.getElementById("start-button");
@@ -31,6 +33,49 @@ const statusLine = document.getElementById("status");
 const debug = createDebugPanel();
 const stats = createSessionStats(); // rounds, timings, skips (step 8)
 const showStats = () => debug.setStats(stats.summary());
+
+// ---- Experiment log (step 9) ----
+// Every round's results are written down (src/log/round-log.js). The debug panel has
+// a tag box (for the reading experiment) and buttons to download the log.
+const log = createRoundLog();
+debug.setupLog({
+  onTag: (text) => log.setTag(text),
+  onJson: () => downloadText(log.toJson(settingsForLog()), `${logFileName()}.json`, "application/json"),
+  onCsv: () => downloadText(log.toCsv(), `${logFileName()}.csv`, "text/csv"),
+  onClear() {
+    log.clear();
+    debug.setLogCount(0);
+  },
+});
+
+// e.g. "wwsl-log-2026-11-12-1530"
+function logFileName() {
+  const now = new Date();
+  const two = (value) => String(value).padStart(2, "0");
+  return `wwsl-log-${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}-${two(now.getHours())}${two(now.getMinutes())}`;
+}
+
+// The settings the log was recorded under, saved at the top of the JSON file
+function settingsForLog() {
+  return {
+    whisper: modelState.Whisper,
+    llm: llm ? CONFIG.llm.model : "off",
+    roundSeconds: CONFIG.roundSeconds,
+    listenSeconds: CONFIG.speech.listenSeconds,
+    quietBelowDb: CONFIG.quietBelowDb,
+    microphone: CONFIG.microphone,
+    soundChoice: CONFIG.soundChoice,
+    images: CONFIG.images,
+  };
+}
+
+// Starts a log row for a round (or typed sentence) and returns the round's handle,
+// which now fills in the debug panel and the log row together
+function tracked(handle, start) {
+  const round = log.track(handle, start);
+  debug.setLogCount(log.count);
+  return round;
+}
 
 // Values shared between the program and the visuals
 const live = {
@@ -245,7 +290,7 @@ try {
     .call("labels", { labels: library.labels })
     .then(() => {
       modelState["Text model"] = "ready";
-      debug.enableTyping((text) => understand(text, debug.addTyped(text)));
+      debug.enableTyping((text) => understand(text, tracked(debug.addTyped(text), { input: "typed", transcript: text })));
     })
     .catch((error) => {
       modelState["Text model"] = `failed: ${error.message}`;
@@ -346,11 +391,20 @@ async function onSegment(segment) {
   const cutAt = performance.now(); // the moment the segment was cut: every timing counts from here
   const prepared = await prepareSegment(segment); // 48 kHz for CLAP, 16 kHz for Whisper
   const prepMs = Math.round(performance.now() - cutAt);
-  const round = debug.addRound({
-    ...segment,
-    prepMs,
-    onPlay: () => playSamples(prepared.sound, CONFIG.soundSampleRate),
-  });
+  const round = tracked(
+    debug.addRound({
+      ...segment,
+      prepMs,
+      onPlay: () => playSamples(prepared.sound, CONFIG.soundSampleRate),
+    }),
+    {
+      input: capture?.label,
+      round: segment.index + 1,
+      startSec: segment.startSec,
+      levelDb: Number.isFinite(segment.levelDb) ? Math.round(segment.levelDb * 10) / 10 : null,
+      quiet: segment.quiet,
+    },
+  );
   stats.round(segment.quiet);
   showStats();
 

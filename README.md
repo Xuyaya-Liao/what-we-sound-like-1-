@@ -201,6 +201,34 @@ Still to test with a real microphone and **speakers** (not headphones): stay sil
 minute while nature sounds play. The rounds should stay "quiet". If the microphone picks the
 nature sounds up as "voice", the piece keeps answering itself.
 
+### The experiment log (step 9)
+
+Every round, and every typed sentence, is written down as one row: the time, the input,
+the tag, loudness, the sound chosen with its score and the top 3, the transcript and its
+language, the local labels and the LLM's choice, the image, and how long each part took.
+The row under the summary line in the debug panel controls it:
+
+```
+Log: 42 rows  JSON  CSV  Clear  · tag “whispering”
+[Tag for the next rounds, e.g. whispering, then Enter]
+```
+
+- **JSON** downloads everything, plus the settings it was recorded under (which Whisper,
+  LLM on or off, the sound-choice settings…), so results from different days can be compared.
+- **CSV** downloads one row per round, for Excel or Google Sheets. Chinese text shows correctly
+  in Excel.
+- **Clear** empties the log. **The log is kept in memory only: reloading the page empties
+  it too**, so download before reloading.
+
+**For the reading experiment** (the same text read in different ways): type a tag, such as
+`normal`, `whispering`, `shouting` or `singing`, and press Enter before each reading. Every
+row after that carries the tag, until another one is entered (an empty Enter clears it). In
+the spreadsheet, filter or sort by the `tag` column to compare which sounds, labels and
+images each way of speaking led to. The code is in `src/log/round-log.js`.
+
+Tested on 2026-11-12 with the Mandarin recording and a typed sentence: the JSON and CSV
+files contained every field above.
+
 ## What each file is for
 
 ```
@@ -226,6 +254,8 @@ what-we-sound-like/
 │  │  └─ llm-label.js       Asks the LLM for a label: prompt, key, remembered answers
 │  ├─ image/
 │  │  └─ image-choice.js    Picks a label's next image: shuffle bag, recent ones avoided
+│  ├─ log/
+│  │  └─ round-log.js       Records every round; downloads the log as JSON or CSV
 │  ├─ workers/
 │  │  ├─ worker-client.js   Lets the page call a Web Worker like a function
 │  │  ├─ sound-worker.js    Runs CLAP off the main thread
@@ -371,7 +401,7 @@ more representative: add WAV files there and run `npm run build:vectors`.
 - [x] Step 6 · Meaning path (LLM) (the relay that hides the key moves to step 12)
 - [x] Step 7 · Image selection
 - [ ] Step 8 · Timing and stability (built and run for 10 minutes; the speaker test is left)
-- [ ] Step 9 · Experiment logging
+- [x] Step 9 · Experiment logging
 - [ ] Step 10 · Visuals v1 (minimum deliverable)
 - [ ] Step 11 · Visual iterations + dataset finalization
 - [ ] Step 12 · Deployment

@@ -1,7 +1,8 @@
 // debug-panel.js: a small panel in the corner that shows what the program is doing.
 // Press D to show or hide it.
 //
-// Top: the input, model status, what is playing, the session summary (step 8), a live level meter.
+// Top: the input, model status, what is playing, the session summary (step 8),
+// the experiment log's tag box and download buttons (step 9), a live level meter.
 // Below: one block per 5-second round, newest first. A block is added as soon as
 // the segment is cut, and results are filled in as they arrive:
 //   #3  10.0 s · -21 dB · voice · prep 3 ms · sound 0.4 s · image 1.8 s   ▶
@@ -45,6 +46,20 @@ export function createDebugPanel() {
   const models = make("p", "", "debug-line muted");
   const nowPlaying = make("p", "♪ nothing playing yet", "debug-line");
   const stats = make("p", "", "debug-line muted"); // how the piece is keeping up (step 8)
+
+  // The experiment log (step 9): a tag box, how many rows, and the download buttons
+  const logRow = make("div", undefined, "debug-line log-row");
+  const logCount = make("span", "Log: 0 rows ", "muted");
+  const tagBox = make("input", undefined, "debug-typing log-tag");
+  tagBox.placeholder = "Tag for the next rounds, e.g. whispering, then Enter";
+  const tagShown = make("span", "", "muted");
+  const jsonButton = make("button", "JSON");
+  const csvButton = make("button", "CSV");
+  const clearButton = make("button", "Clear");
+  jsonButton.title = "Download every round, with the settings, as JSON";
+  csvButton.title = "Download one row per round, for Excel or Google Sheets";
+  clearButton.title = "Empty the log";
+  logRow.append(logCount, jsonButton, " ", csvButton, " ", clearButton, tagShown, tagBox);
   const typing = make("input", undefined, "debug-typing");
   typing.placeholder = "Type a sentence to test the meaning path, then Enter";
   typing.disabled = true; // until the models are ready
@@ -71,7 +86,7 @@ export function createDebugPanel() {
 
   const rounds = make("div", undefined, "rounds");
 
-  panel.append(input, microphoneRow, warning, models, llmLine, keyRow, nowPlaying, stats, typing, meter, rounds);
+  panel.append(input, microphoneRow, warning, models, llmLine, keyRow, nowPlaying, stats, logRow, typing, meter, rounds);
   document.body.append(panel);
 
   // D toggles the panel
@@ -113,6 +128,25 @@ export function createDebugPanel() {
 
     setNowPlaying(sound) {
       nowPlaying.textContent = sound ? `♪ latest: ${sound.title} · ${sound.category}` : "♪ nothing playing";
+    },
+
+    // The experiment log's controls (step 9). Each on…() is called when its button is
+    // clicked; onTag(text) when a tag is entered ("" clears it).
+    setupLog({ onTag, onJson, onCsv, onClear }) {
+      tagBox.addEventListener("keydown", (event) => {
+        event.stopPropagation(); // so typing "d" doesn't hide the panel
+        if (event.key !== "Enter") return;
+        onTag(tagBox.value.trim());
+        tagShown.textContent = tagBox.value.trim() ? ` · tag “${tagBox.value.trim()}” ` : "";
+        tagBox.value = "";
+      });
+      jsonButton.onclick = onJson;
+      csvButton.onclick = onCsv;
+      clearButton.onclick = onClear;
+    },
+
+    setLogCount(count) {
+      logCount.textContent = `Log: ${count} row${count === 1 ? "" : "s"} `;
     },
 
     // The session summary: rounds, how long the paths take, skips, memory (step 8)

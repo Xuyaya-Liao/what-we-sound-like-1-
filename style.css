@@ -253,6 +253,16 @@ a {
   cursor: pointer;
 }
 
+/* The experiment log row (step 9): buttons in a row after the count, tag box below */
+.log-row button {
+  float: none;
+}
+
+.log-tag {
+  display: block;
+  margin: 6px 0 0;
+}
+
 /* ---- Credits page ---- */
 
 /* The main piece never scrolls, but the credits page is long and must */
