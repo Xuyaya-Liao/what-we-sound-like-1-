@@ -18,7 +18,10 @@
 // Each image selection adds one generation. HUD motion runs at a steady pace.
 
 const MAX_GENERATIONS = 3; // how many recent rounds can be on screen at once
-const LIFESPAN_SECONDS = 9; // a generation is fully gone after this long
+const MIN_LIFESPAN_SECONDS = 3.2;
+const MAX_LIFESPAN_SECONDS = 8.4;
+const MAX_ENTRY_DELAY = 0.75;
+const MAX_HANDOFF_DELAY = 1.0;
 const MAX_SHOWN = 10;
 const BOX_SCALE = 3.5;
 const BOX_BEATS_PER_SECOND = 6;
@@ -46,13 +49,19 @@ export function createHud(container) {
     // Sound entries carry a clip ID, category, CLAP score and draw probability.
     // Extra ranked clips outside the draw have zero probability.
     addRound(data) {
-      generations.unshift(buildGeneration(data));
+      const next = buildGeneration(data);
+      if (!next.boxes.length) return;
+      if (generations.length) generations[0].replacedAt = next.since;
+      generations.unshift(next);
       generations = generations.slice(0, MAX_GENERATIONS);
     },
 
     draw(now) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      generations = generations.filter((generation) => now - generation.since < LIFESPAN_SECONDS * 1000);
+      generations = generations.filter(({ since, replacedAt }) =>
+        replacedAt === undefined ||
+        now < Math.max(since + MAX_LIFESPAN_SECONDS * 1000, replacedAt + MAX_HANDOFF_DELAY * 1000),
+      );
       // Oldest drawn first, so the newest generation's lines and boxes end up on top
       for (let i = generations.length - 1; i >= 0; i--) {
         drawGeneration(ctx, generations[i], now, canvas.width, canvas.height);
@@ -62,8 +71,9 @@ export function createHud(container) {
 }
 
 function buildGeneration({ soundCandidates, labelCandidates, chosenSoundId, chosenLabel, mismatch, match }) {
-  const soundBoxes = layoutBoxes(topWithChosen(soundCandidates, chosenSoundId), "sound", chosenSoundId);
-  const labelBoxes = layoutBoxes(topWithChosen(weighted(labelCandidates), chosenLabel), "label", chosenLabel);
+  const variation = Math.random() * 10000;
+  const soundBoxes = layoutBoxes(topWithChosen(soundCandidates, chosenSoundId), "sound", chosenSoundId, variation);
+  const labelBoxes = layoutBoxes(topWithChosen(weighted(labelCandidates), chosenLabel), "label", chosenLabel, variation);
 
   // Each box links to its best match on the opposite side. Draw mutual links once.
   const links = new Map();
@@ -76,7 +86,19 @@ function buildGeneration({ soundCandidates, labelCandidates, chosenSoundId, chos
   for (const labelBox of labelBoxes) connect(bestMatch(labelBox, soundBoxes, match), labelBox);
   connect(soundBoxes.find((box) => box.chosen), labelBoxes.find((box) => box.chosen));
 
-  return { since: performance.now(), boxes: [...soundBoxes, ...labelBoxes], links: [...links.values()], mismatch };
+  const retainedSound = soundBoxes.find((box) => box.chosen) ?? soundBoxes.find((box) => box.rank === 0);
+  const retainedLabel = labelBoxes.find((box) => box.chosen) ?? labelBoxes.find((box) => box.rank === 0);
+  // Start with one box immediately so the handoff has a visible successor.
+  const first = retainedLabel ?? retainedSound;
+  if (first) first.appearsAfter = 0;
+
+  return {
+    since: performance.now(),
+    boxes: [...soundBoxes, ...labelBoxes],
+    links: [...links.values()],
+    retained: new Set([retainedSound, retainedLabel]),
+    mismatch,
+  };
 }
 
 function topWithChosen(list, chosenId) {
@@ -99,25 +121,39 @@ function weighted(labelCandidates) {
   return labelCandidates.map((c, i) => ({ ...c, weight: weights[i] / total }));
 }
 
-// Spread each side across its region and overlap the two regions near the middle.
-function layoutBoxes(candidates, kind, chosenId) {
-  const region = kind === "sound" ? [0.06, 0.64] : [0.36, 0.94];
-  return candidates
-    .map((candidate) => ({ candidate, seed: hashSeed(`${kind}:${candidate.id}`) }))
-    .sort((a, b) => a.seed - b.seed)
-    .map(({ candidate, seed }, index) => {
-      const slot = (index + mix(0.2, 0.8, hashFloat(seed * 12.9898))) / candidates.length;
-      return makeBox(candidate, kind, candidate.id === chosenId, seed, mix(...region, slot));
-    });
+// Spread candidates across both axes, with the sound and label regions overlapping.
+function layoutBoxes(candidates, kind, chosenId, variation) {
+  const region = kind === "sound" ? [0.005, 0.68] : [0.32, 0.995];
+  const entries = candidates.map((candidate, rank) => ({
+    candidate, rank, seed: hashSeed(`${kind}:${candidate.id}`),
+  }));
+  const byY = [...entries].sort((a, b) => hashFloat(a.seed * 3.17) - hashFloat(b.seed * 3.17));
+  const ySlots = new Map(byY.map((entry, index) => [entry, index]));
+  return entries.sort((a, b) => a.seed - b.seed).map((entry, xSlot) => {
+    const { candidate, rank, seed } = entry;
+    const chosen = candidate.id === chosenId;
+    const x = mix(...region, slotPosition(xSlot, entries.length, seed * 12.9898));
+    const y = mix(0.005, 0.995, slotPosition(ySlots.get(entry), entries.length, seed * 78.233));
+    const priority = 1 - rank / Math.max(1, entries.length - 1);
+    const opacity = chosen ? 1 : mix(0.48, 0.9, priority);
+    const lifetime = mix(MIN_LIFESPAN_SECONDS, MAX_LIFESPAN_SECONDS, hashFloat(seed + variation));
+    const appearsAfter = mix(0.04, MAX_ENTRY_DELAY, hashFloat(seed + variation + 53.9));
+    const handoffDelay = mix(0.2, MAX_HANDOFF_DELAY, hashFloat(seed + variation + 109.4));
+    return makeBox(candidate, { kind, chosen, seed, x, y, rank, opacity, lifetime, appearsAfter, handoffDelay });
+  });
 }
 
-function makeBox(candidate, kind, chosen, seed, x) {
-  const y = mix(0.08, 0.92, hashFloat(seed * 78.233 + 4.7));
+function slotPosition(index, count, seed) {
+  return (index + mix(0.12, 0.88, hashFloat(seed))) / count;
+}
+
+function makeBox(candidate, placement) {
+  const { chosen, seed } = placement;
   const size = BOX_SCALE * (mix(9, 30, Math.min(1, candidate.weight * 1.6)) + (chosen ? 5 : 0));
   const aspect = Math.sqrt(mix(0.65, 2.2, hashFloat(seed * 3.71)));
   const source = candidate.association ? " match" : "";
   const label = `${candidate.category ?? candidate.id}${source} ${candidate.score.toFixed(2)}`;
-  return { id: candidate.id, category: candidate.category, kind, chosen, x, y, width: size * aspect, height: size / aspect, seed, label };
+  return { ...placement, id: candidate.id, category: candidate.category, width: size * aspect, height: size / aspect, label };
 }
 
 // Of the boxes on the other side, which does this one match best? (real data:
@@ -148,18 +184,29 @@ function makeLink(from, to, match) {
 // ---- Drawing ----
 
 function drawGeneration(ctx, generation, now, width, height) {
+  const age = (now - generation.since) / 1000;
   const t = now / 1000;
-  const positions = new Map(generation.boxes.map((box) => [box, boxFrame(box, width, height, t)]));
-  for (const link of generation.links) {
-    drawLink(ctx, link, positions.get(link.from), positions.get(link.to), t);
-  }
+  const sinceReplacement = (now - (generation.replacedAt ?? Infinity)) / 1000;
+  const depth = sinceReplacement >= 0 ? 0.72 : 1;
+  const positions = new Map();
   for (const box of generation.boxes) {
-    drawBox(ctx, box, positions.get(box), generation.mismatch);
+    const visible = generation.retained.has(box)
+      ? sinceReplacement < box.handoffDelay
+      : age < box.lifetime;
+    if (age >= box.appearsAfter && visible) {
+      positions.set(box, boxFrame(box, width, height, t, depth));
+    }
   }
+  for (const link of generation.links) {
+    const from = positions.get(link.from);
+    const to = positions.get(link.to);
+    if (from && to) drawLink(ctx, link, from, to, t);
+  }
+  for (const [box, frame] of positions) drawBox(ctx, box, frame, generation.mismatch);
 }
 
 // Links and rectangles share each frame's jittered positions.
-function boxFrame(box, width, height, t) {
+function boxFrame(box, width, height, t, depth) {
   const beat = Math.floor(t * BOX_BEATS_PER_SECOND + hashFloat(box.seed));
   const seed = box.seed + beat * 2.17;
   const viewportScale = Math.min(1, width / 650, height / 450);
@@ -170,40 +217,28 @@ function boxFrame(box, width, height, t) {
   const jitterY = mix(-JITTER_PIXELS, JITTER_PIXELS, hashFloat(seed + 23.7));
   const x = Math.max(boxWidth / 2 + 4, Math.min(width - boxWidth / 2 - 4, box.x * width + jitterX));
   const y = Math.max(boxHeight / 2 + 4, Math.min(height - boxHeight / 2 - 4, box.y * height + jitterY));
-  const opacity = hashFloat(seed + 90) > 0.16 ? 1 : 0.86;
+  const opacity = box.opacity * depth;
   return { x, y, width: boxWidth, height: boxHeight, opacity };
 }
 
 function drawBox(ctx, box, { x, y, width, height, opacity }, mismatch) {
   const left = x - width / 2;
   const top = y - height / 2;
-  const lineWidth = box.chosen ? 2.2 : 1.5;
-  ctx.strokeStyle = "rgba(0, 0, 0, 0.86)";
-  ctx.lineWidth = lineWidth + 2;
-  ctx.strokeRect(left, top, width, height);
-  ctx.strokeStyle = mismatchColour(mismatch, box.chosen ? 1 : opacity);
-  ctx.lineWidth = lineWidth;
+  ctx.strokeStyle = mismatchColour(mismatch, opacity);
+  ctx.lineWidth = box.chosen ? 2.2 : 1.5;
   ctx.strokeRect(left, top, width, height);
 
   ctx.font = `${box.chosen ? 12 : 11}px "Courier New", monospace`;
   ctx.textBaseline = "top";
   ctx.textAlign = "left";
-  drawText(ctx, box.label, left + 4, top + 4, "#f4f7f6");
-}
-
-function drawText(ctx, text, x, y, color) {
-  ctx.strokeStyle = "rgba(0, 0, 0, 0.92)";
-  ctx.lineWidth = 3;
-  ctx.strokeText(text, x, y);
-  ctx.fillStyle = color;
-  ctx.fillText(text, x, y);
+  ctx.fillStyle = `rgba(244, 247, 246, ${opacity})`;
+  ctx.fillText(box.label, left + 4, top + 4);
 }
 
 // Keep the network readable over the image while secondary links pulse.
 // Each link uses its own mismatch color, with the selected pair emphasized.
 function drawLink(ctx, link, from, to, t) {
   const beat = Math.floor(t * LINK_BEATS_PER_SECOND + hashFloat(link.seed));
-  const bright = hashFloat(link.seed + beat * 3.73) > 0.6;
 
   const jaggedness = link.mismatch * 20;
   const dx = to.x - from.x;
@@ -212,7 +247,7 @@ function drawLink(ctx, link, from, to, t) {
   const perpX = -dy / length;
   const perpY = dx / length;
   const segments = 7;
-  const wiggleSeed = link.seed + beat * 1.9; // a new jagged shape each time it blinks on, not a slow drift
+  const wiggleSeed = link.seed + beat * 1.9;
 
   ctx.beginPath();
   ctx.moveTo(from.x, from.y);
@@ -222,14 +257,10 @@ function drawLink(ctx, link, from, to, t) {
     ctx.lineTo(from.x + dx * f + perpX * along, from.y + dy * f + perpY * along);
   }
   ctx.lineTo(to.x, to.y);
-  const alpha = link.anchor || bright ? 1 : 0.86;
-  const lineWidth = link.anchor ? 2.6 : 1.6;
-  // A dark outline gives white and red links contrast over bright photos.
-  ctx.strokeStyle = `rgba(0, 0, 0, ${alpha * 0.8})`;
-  ctx.lineWidth = lineWidth + 2;
-  ctx.stroke();
+  const pulse = mix(0.8, 0.94, hashFloat(link.seed + beat * 3.73));
+  const alpha = link.anchor ? Math.min(from.opacity, to.opacity) : Math.min(from.opacity, to.opacity) * pulse;
   ctx.strokeStyle = mismatchColour(link.mismatch, alpha);
-  ctx.lineWidth = lineWidth;
+  ctx.lineWidth = link.anchor ? 2.6 : 1.6;
   ctx.stroke();
 
   if (link.anchor) {
@@ -238,12 +269,13 @@ function drawLink(ctx, link, from, to, t) {
     ctx.font = "11px \"Courier New\", monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    drawText(ctx, `mismatch ${link.mismatch.toFixed(2)}`, midX, midY, mismatchColour(link.mismatch, 1));
+    ctx.fillStyle = mismatchColour(link.mismatch, alpha);
+    ctx.fillText(`mismatch ${link.mismatch.toFixed(2)}`, midX, midY);
   }
 }
 
-// White (mismatch 0) to a bright, alarmed red (mismatch 1) — the HUD's one
-// colour decision, the same for every box, line and label.
+// White at mismatch 0, bright red at 1. Boxes use the round's mismatch;
+// links and the selected pair's readout use the pair's own mismatch.
 function mismatchColour(mismatch, alpha) {
   const r = 255;
   const g = Math.round(255 - 215 * mismatch);
