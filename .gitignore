@@ -7,9 +7,7 @@ node_modules/
 .env
 .env.local
 
-# Media copied in by npm run build:assets (about 160 MB). Rebuilt from the
-# dataset snapshot any time, so it does not belong in the version history.
-assets/
+# Runtime media in assets/ is tracked for the GitHub Pages deployment.
 
 # Intermediate cache of the offline tools (step 2)
 tools/.cache/
