@@ -153,8 +153,8 @@ OpenRouter website), so testing can never use up the exhibition's budget.
 ### The images (step 7)
 
 Once a round's label is settled (the LLM's when it is on, otherwise the local one), that
-label's next image fades in over the last one (`images.fadeSeconds`) and zooms in very
-slowly. So the image changes once per round with speech, and stays during silence.
+label's next image dissolves in over the last one (see "The visuals" below for how).
+So the image changes once per round with speech, and stays during silence.
 
 Which image: every label has a **shuffle bag**, all its images in random order. Each time
 the label comes up, the next one is taken out; when the bag is empty it is refilled and
@@ -229,6 +229,104 @@ images each way of speaking led to. The code is in `src/log/round-log.js`.
 Tested on 2026-11-12 with the Mandarin recording and a typed sentence: the JSON and CSV
 files contained every field above.
 
+### The visuals (step 10)
+
+The canvas is drawn by a **shader**, a small program that runs on the graphics card once
+for every pixel, every frame. Code is in `src/visuals/`:
+
+- `visuals.js` — the p5 sketch: loads the images and the shader, smooths the voice's
+  loudness into "energy", and hands everything to the shader each frame.
+- `shaders/image.frag` — decides each pixel's colour; the comments there walk through it.
+- `shaders/image.vert` — places the rectangle that covers the screen (rarely needs changing).
+- `hud.js` — the embedding HUD, a separate 2D overlay (see below).
+
+The whole look is driven by one number, **mismatch** (0–1): how well the sound just chosen
+(its category, e.g. "thunder") and the image's label (e.g. "storm") agree. 0 = they agree,
+the picture looks like itself, in a clean, orderly way. 1 = they don't, and the picture
+breaks apart: colour pushed toward inverted and high-saturation, chromatic aberration, a
+liquid warp, the image read through jittering, small rectangular glitch patches, and a
+glowing offset trace along the edges of things in the photo. Mismatch applies continuously,
+for as long as an image is on screen — not just during the moment of switching to it — and
+switching to a new image is a **grid-cell dissolve**: a small, fixed-size grid (not scaled
+by mismatch, so even a badly-mismatched image arrives in small, quick pieces, not big slow
+ones) reveals in a scattered order, more scattered the more mismatched the new image is. The
+voice's volume only ever gets a light, secondary role (a touch more jitter, a touch more
+brightness) — colour and the warp are mismatch-only, by design decision (2026-11-13). Every
+number is under `visuals` in `src/config.js`.
+
+**How mismatch is computed.** The sound library's 18 categories (e.g. "rain", "geothermal")
+get a short English description each, in `config/sound-categories.json`. Once the label
+table is loaded, the multilingual text model (already running for step 5) embeds those 18
+descriptions and the 24 label descriptions, and compares every category with every label —
+an 18×24 table of how well they go together (`buildMatchMatrix` in
+`src/workers/speech-worker.js`). Each pair's score is its **percentile rank** among all 432 —
+0 = the worst pair in the whole table, 1 = the best, 0.5 = exactly in the middle — not how
+close its raw similarity is to the best/worst value; mismatch is 1 minus that. (The raw
+similarities turned out to cluster narrowly — checked 2026-11-13, median only a little above
+the lowest one — so a plain min–max scale left nearly every real pairing reading as "fairly
+mismatched"; ranking spreads them evenly instead.) No build step: edit
+`config/sound-categories.json` and reload. The debug panel shows the number on the `▣` line,
+e.g. `(5 of 6 left in the bag · mismatch 0.53)`, and it's in the experiment log too (step 9).
+
+**Busy at the switch, calm once it's settled.** A second number, "activity", starts at 1
+the moment a new image arrives and eases down to a calmer resting level over a couple of
+seconds (`settleSeconds`, `restActivity` in `src/config.js`). Most of the glitchier effects
+scale with it, so the busiest moment is right as an image changes, and a visitor gets a
+proper, readable look at each one before it's time for the next. (Added 2026-11-13, after
+watching the first version: between this and the ranking fix above, the piece had been
+reading as busy and unclear almost all the time, whatever was actually chosen.)
+
+**The embedding HUD.** Always on, drawn in `src/visuals/hud.js`: a separate, plain 2D
+canvas layered over the shader (not part of it — crisp small text is painful in GLSL). It is
+a visible trace of what the machine is actually comparing each round, in the style of a
+computer-vision debug overlay — tracking boxes, a crossing network of thin lines, real
+numbers — not decoration: the same data the debug panel already prints, drawn onto the
+picture. Each round, it shows the top sound categories CLAP ranked and the top labels the
+text model ranked (the chosen pair always included, even if the LLM picked a label outside
+the local ranking's top few), **scattered across the frame at varied sizes and positions**
+(sound candidates lean left, labels lean right, but loosely — enough that the two sides tangle
+together), **each box's size following its real weight** (for sound, the actual probability
+it was drawn with; for labels, a softmax over their scores, since the pipeline itself has no
+equivalent number there). Every candidate is linked to whichever candidate on the other side
+it genuinely matches best (the real category↔label match table — not just the chosen pair),
+so the lines crossing the screen mean something; the chosen↔chosen link is the one line
+that's always on and labelled with the mismatch value, the rest flicker in and out in short
+bursts, like a scan finding and losing a connection. Everything — box borders, lines, the
+highlighted text — is coloured on a scale from **white (mismatch 0) to a bright, alarmed red
+(mismatch 1)**, the colour for each line is its OWN pair's real mismatch. Motion is
+deliberately not smooth: positions are fixed for a round's whole lifetime, and what animates
+is a hard, un-eased flicker (box size and opacity jump to a new value every beat, no easing
+between beats) — a calmer, continuously-drifting version read as too generic (feedback
+2026-11-13). It reuses the shader's "activity" (more candidates shown, faster flicker right
+as a round arrives; calmer once settled), and each round's boxes persist for a few seconds,
+fading as the next round's arrive, so a few generations of "the machine's recent thinking"
+are visible at once. Tested on 2026-11-13: ~3-minute loops (both before and after this
+redesign), no console errors, page memory steady.
+
+**Design tool.** The look was designed and tuned first in a page with sliders, independent
+of the real app: `experiments/visuals-lab/` (open `/experiments/visuals-lab/` on the local
+server). Drag Mismatch and Energy live, click "Switch image" to test a dissolve, and "Copy
+current settings" to get the numbers back out. It simulates the same activity easing
+automatically (no slider for it) so what you see there matches the real app. Try a new look
+there before touching `src/visuals/`. (The embedding HUD above is not in the lab — it only
+has real candidates and scores to show in the real app; there is nothing to fake for it.)
+
+Tested on 2026-11-13: typed sentences, and loops of the Mandarin recording up to about 4
+minutes (46 rounds), no console errors, mismatch values spread across the full 0–1 range
+round to round (not stuck at the neutral 0.5 fallback, and no longer clustered high). A
+backup of the project from just before this step was built is kept alongside this folder
+(see "Backups", below).
+
+## Backups
+
+There is no git repository yet (see the progress list). Until there is, snapshots of the
+whole project are taken by hand before anything exploratory, at
+`../backups/` and, for whole-folder copies kept to work from, siblings of this folder (e.g.
+`../what-we-sound-like(1)`, the copy this file is in — made 2026-11-13, right before step 10
+was built, from the project as it stood after step 9). If something needs undoing, the
+previous copy still has the old code; ask to roll back to it rather than trying to hand-edit
+your way back.
+
 ## What each file is for
 
 ```
@@ -256,15 +354,22 @@ what-we-sound-like/
 │  │  └─ image-choice.js    Picks a label's next image: shuffle bag, recent ones avoided
 │  ├─ log/
 │  │  └─ round-log.js       Records every round; downloads the log as JSON or CSV
+│  ├─ visuals/
+│  │  ├─ visuals.js         The p5 sketch: images, energy, mismatch, settings → the shader
+│  │  ├─ hud.js             The embedding HUD: a 2D overlay of real candidates and scores
+│  │  └─ shaders/
+│  │     ├─ image.vert      Places the rectangle that covers the screen
+│  │     └─ image.frag      Colours every pixel: grid, warp, colour, dissolve, outline, grain
 │  ├─ workers/
 │  │  ├─ worker-client.js   Lets the page call a Web Worker like a function
 │  │  ├─ sound-worker.js    Runs CLAP off the main thread
-│  │  └─ speech-worker.js   Runs Whisper and the multilingual text model
+│  │  └─ speech-worker.js   Runs Whisper, the multilingual text model, and the mismatch table
 │  └─ ui/
 │     └─ debug-panel.js The panel in the corner (press D)
 ├─ config/
-│  ├─ labels.json      The label table (hand-edited): what the LLM may choose from
-│  └─ excluded.json    Images or sounds to leave out, with the reason (hand-edited)
+│  ├─ labels.json           The label table (hand-edited): what the LLM may choose from
+│  ├─ sound-categories.json The sound library's categories, described for the mismatch table
+│  └─ excluded.json         Images or sounds to leave out, with the reason (hand-edited)
 ├─ tools/              Offline tools (run on your computer with Node)
 │  ├─ build-assets.mjs  Copies a dataset snapshot into assets/ (evening out sound loudness)
 │  │                    and writes data/manifest.json
@@ -274,6 +379,8 @@ what-we-sound-like/
 │  ├─ reference-voices/ Recordings of people talking, averaged into "an average voice" (centering)
 │  └─ lib/              Shared helpers: wav.mjs (read/write WAV), loudness.mjs, clap.mjs
 ├─ test-audio/         Recordings for repeatable tests (?input=…)
+├─ experiments/
+│  └─ visuals-lab/     Design tool for the visuals (step 10): sliders, no connection to src/
 ├─ assets/             Images and sounds for the site (generated, not in git)
 ├─ data/
 │  ├─ manifest.json     The asset list the site reads (generated)
@@ -402,7 +509,7 @@ more representative: add WAV files there and run `npm run build:vectors`.
 - [x] Step 7 · Image selection
 - [ ] Step 8 · Timing and stability (built and run for 10 minutes; the speaker test is left)
 - [x] Step 9 · Experiment logging
-- [ ] Step 10 · Visuals v1 (minimum deliverable)
+- [x] Step 10 · Visuals v2 (mismatch-driven shader; the discarded, simpler v1 is in a backup)
 - [ ] Step 11 · Visual iterations + dataset finalization
 - [ ] Step 12 · Deployment
 - [ ] Step 13 · Audience testing and delivery

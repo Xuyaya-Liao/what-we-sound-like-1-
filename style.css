@@ -33,6 +33,15 @@ body {
   display: block;
 }
 
+/* The embedding HUD (step 10): a plain 2D layer drawn over the WebGL canvas.
+   pointer-events: none so it never blocks clicks on anything underneath. */
+.visuals-hud {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
 /* Start screen: centered, layered on top of the canvas */
 #start-screen {
   position: fixed;

@@ -81,10 +81,99 @@ export const CONFIG = {
   },
 
   // The images (step 7, see src/image/image-choice.js). Each time a label is chosen,
-  // the next image from that label's shuffle bag fades in over the last one.
+  // the next image from that label's shuffle bag is drawn (how it appears is up to
+  // the visuals, below).
   images: {
     recent: 4, // avoid the last 4 images shown (at most half of a label's images)
-    fadeSeconds: 2, // how long one image takes to fade into the next
+  },
+
+  // The visuals (step 10, see src/visuals/). Everything here is also a slider in the
+  // design tool at experiments/visuals-lab/ — tune it there first, then copy the
+  // numbers here. The whole look is driven by TWO numbers computed each round:
+  //   mismatch (0–1): how well the chosen sound's category and the chosen image's
+  //     label agree (src/semantic — the text model compares their descriptions).
+  //     0 = they agree, the picture looks like itself. 1 = they don't, and the
+  //     picture dissolves into colour, glitch and liquid distortion.
+  //   energy (0–1): the voice's current loudness, smoothed. Only ever a LIGHT,
+  //     secondary role here (see energyJitter / energyGlow below) — never colour,
+  //     never the warp, by design decision (2026-11-13).
+  visuals: {
+    // The dissolve from one image to the next: a grid-cell "break apart", not an
+    // even fade. Cells reveal in a scattered order; mismatch scrambles that order
+    // further, so an image that fits badly arrives more chaotically. Its own
+    // grid (dissolveGrid), always fine and NOT scaled by mismatch, so even a very
+    // mismatched image arrives in small, quick pieces rather than big slow ones.
+    transitionSeconds: 1.6,
+    dissolveGrid: 9,
+
+    // How long, after a dissolve finishes, the busiest effects take to ease down
+    // to their resting level (restActivity — see below), and how low that resting
+    // level is. 2026-11-13: without this the piece looked busy and unclear almost
+    // all the time, whatever was actually chosen; now a visitor gets a proper,
+    // readable look at each image, and things only properly churn right as a new
+    // one arrives (or when the pairing is a genuinely bad one — see mismatch above).
+    settleSeconds: 2.5,
+    restActivity: 0.3,
+
+    // The "look" grid the picture is read through while it's on screen (separate
+    // from the dissolve's own grid, above). A cell's size grows from gridFine
+    // (fine, almost invisible) to gridCoarse (a visible block) as mismatch rises.
+    // The grid itself is bent by a slow drift rather than being a rigid
+    // checkerboard, so it never looks mechanical.
+    gridFine: 1.2,
+    gridCoarse: 24,
+
+    // How hard each effect pushes, all measured at mismatch = 1 AND full activity
+    // (at mismatch 0, or once things have settled, they are much weaker — see
+    // restActivity above). jitterAmount nudges each grid cell sideways;
+    // glitchAmount triggers small rectangular patches that shift, like a
+    // corrupted block in a video signal; scanlineAmount is the opposite — a clean
+    // technical texture that is strongest at mismatch 0 and fades OUT as
+    // mismatch rises.
+    warpAmount: 0.08, // liquid warp: a slow drift pulling the image, mismatch-only
+    aberrationAmount: 0.012, // chromatic aberration (red/blue pulled apart)
+    invertAmount: 0.5, // colour pushed toward inverted, plus occasional glitch flashes
+    saturateAmount: 0.55, // colour pushed toward high saturation
+    glitchAmount: 0.55,
+    jitterAmount: 0.5,
+    scanlineAmount: 0.5,
+
+    // An offset, glowing trace along the edges of things in the photo (a tree
+    // line, a horizon) — like a double exposure that has drifted apart. Off at
+    // mismatch 0; both how visible it is and how far it drifts grow with
+    // mismatch. Traces an edge rather than hiding it, so unlike the effects
+    // above it stays mostly present even once things have settled.
+    outlineAmount: 0.5,
+    outlineOffset: 0.02,
+    outlineThreshold: 0.12, // how strong an edge has to be before it's traced (lower = traces more)
+
+    // Volume's one allowed role: a LIGHT touch of extra jitter and brightness.
+    // Never colour, never the warp (decided 2026-11-13).
+    energyJitter: 0.15,
+    energyGlow: 0.08,
+
+    // Always on, regardless of mismatch: zoom (each image zooms in slowly so it
+    // never looks frozen), vignette (darker corners), grain (a little static).
+    zoomPerImage: 0.05, // 5% zoom in over zoomSeconds
+    zoomSeconds: 25,
+    vignette: 0.4,
+    grain: 0.03,
+
+    // Below quietDb the voice counts as silent (energy 0), above loudDb as loud
+    // (energy 1). attack/release: how fast energy rises/falls each frame — rising
+    // fast, falling slowly, so it doesn't flicker.
+    quietDb: -60,
+    loudDb: -22,
+    attack: 0.25,
+    release: 0.04,
+
+    // Images bigger than this (on their longest side) are shrunk once when
+    // loaded. Only the two images actually on screen (current and the one it's
+    // dissolving over) are ever kept in graphics memory — see src/visuals/visuals.js
+    // — so a whole visit's worth of images never piles up. 1 = one shader pixel
+    // per CSS pixel; higher looks sharper but costs the graphics card more.
+    maxImageSide: 2048,
+    pixelDensity: 1,
   },
 
   // Phrases Whisper tends to "hear" in noise or silence (step 5, see src/semantic/transcript.js).

@@ -10,7 +10,7 @@
 //       “what was said” · language · seconds heard · Whisper time  (step 5)
 //       → closest labels, from the local text model  (step 5)
 //       ⇒ the LLM's choice, which replaces it, when the LLM is on  (step 6)
-//       ▣ the image shown for the label  (step 7)
+//       ▣ the image shown for the label, and its mismatch with the sound  (steps 7, 10)
 // There is also a box for typing a sentence instead of saying it.
 
 import { CONFIG } from "../config.js";
@@ -96,10 +96,6 @@ export function createDebugPanel() {
 
   // ---- What other code can call ----
   return {
-    show() {
-      panel.hidden = false;
-    },
-
     setInput(label, sampleRate) {
       input.textContent =
         `${label} · ${sampleRate} Hz → ${CONFIG.soundSampleRate} (CLAP) / ${CONFIG.speechSampleRate} (Whisper)`;
@@ -300,8 +296,9 @@ export function createDebugPanel() {
       },
 
       // The image shown for the label, and how many are left in its shuffle bag
-      image({ image, left, total }) {
-        line(speechPart, `▣ ${image.label} · ${image.title}  (${left} of ${total} left in the bag)`, "round-line muted");
+      image({ image, left, total, mismatch }) {
+        const mismatchText = Number.isFinite(mismatch) ? ` · mismatch ${mismatch.toFixed(2)}` : "";
+        line(speechPart, `▣ ${image.label} · ${image.title}  (${left} of ${total} left in the bag${mismatchText})`, "round-line muted");
       },
     };
   }

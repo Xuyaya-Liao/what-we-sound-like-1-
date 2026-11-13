@@ -19,7 +19,7 @@ const COLUMNS = [
   "sound", "soundCategory", "soundScore", "soundCandidates", "clapMs",
   "transcript", "language", "heardSeconds", "whisperMs", "ignored",
   "localLabel", "localTop3", "llmLabel", "llmFrom", "llmMs", "llmTokens",
-  "label", "image", "imageTitle",
+  "label", "image", "imageTitle", "mismatch",
   "soundSeconds", "imageSeconds", "notes",
 ];
 
@@ -101,6 +101,7 @@ export function createRoundLog() {
           row.label = choice.image.label; // the label that was finally used
           row.image = choice.image.id;
           row.imageTitle = choice.image.title;
+          if (Number.isFinite(choice.mismatch)) row.mismatch = round3(choice.mismatch); // step 10
           handle.image(choice);
         },
       };

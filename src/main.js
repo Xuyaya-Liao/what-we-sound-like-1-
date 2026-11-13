@@ -1,19 +1,23 @@
 // main.js: the main entry point of the piece. Every part is plugged in from here.
-//   step 0: placeholder visuals (p5)
+//   step 0: placeholder visuals (p5); step 10 moved them to src/visuals/ (shaders)
 //   step 1: asset library
 //   step 3: input — microphone or recording, cut into 5-second segments
 //   step 4: sound path — CLAP → closest nature sound → overlapping, fading layers
 //   step 5: meaning path (local) — Whisper → text → closest label (text embedding)
 //   step 6: meaning path (LLM) — the LLM chooses the label; the local one is the fallback
-//   step 7: images — the label's next image (shuffle bag) fades in
+//   step 7: images — the label's next image (shuffle bag) is chosen
 //   step 8: timing and stability — how long each round takes, nothing piles up
 //   step 9: experiment log — every round's results, downloadable as JSON or CSV
+//   step 10: visuals v2 — a shader driven by "mismatch": how well the chosen sound's
+//            category and the chosen image's label agree (see src/visuals/)
+//   step 10 also includes the embedding HUD — a 2D overlay tracing each round's
+//            real candidates and scores, computer-vision-debug style (src/visuals/hud.js)
 // The two paths run at the same time, each in its own Web Worker.
 
 // import: take things other files export.
 // This is why index.html says type="module": a plain <script> cannot use import.
 import { CONFIG } from "./config.js";
-import { loadLibrary } from "./library.js";
+import { loadLibrary, loadSoundCategories } from "./library.js";
 import { listMicrophones, NO_SIGNAL_DB, startCapture } from "./audio/capture.js";
 import { prepareSegment } from "./audio/resample.js";
 import { createPlayer } from "./audio/player.js";
@@ -25,6 +29,7 @@ import { createWorkerClient } from "./workers/worker-client.js";
 import { createDebugPanel } from "./ui/debug-panel.js";
 import { createSessionStats } from "./session-stats.js";
 import { createRoundLog, downloadText } from "./log/round-log.js";
+import { createVisuals } from "./visuals/visuals.js";
 
 const startScreen = document.getElementById("start-screen");
 const startButton = document.getElementById("start-button");
@@ -66,6 +71,7 @@ function settingsForLog() {
     microphone: CONFIG.microphone,
     soundChoice: CONFIG.soundChoice,
     images: CONFIG.images,
+    visuals: CONFIG.visuals,
   };
 }
 
@@ -83,7 +89,28 @@ const live = {
   said: "", // the last thing understood (step 5)
   label: undefined, // the label it points to, e.g. "still_water" (steps 5–6)
   image: undefined, // the image showing for that label (step 7)
+  soundCategory: undefined, // the most recently chosen sound's category, e.g. "rain" (step 4)
+  mismatch: 0.25, // how well soundCategory and label agree, 0–1; read live, every frame (step 10)
+  soundId: undefined, // the selected clip within the sound category
+  soundCandidates: undefined, // this round's CLAP ranking, for the embedding HUD (step 10)
+  labelCandidates: undefined, // this round's local label ranking, for the embedding HUD (step 10)
 };
+
+// soundCategory, label → 0 (agree) … 1 (don't), from the text model comparing their
+// descriptions (built once the labels are loaded — see matchLookup below). Until
+// then, or for an id it has never seen, a neutral middle value.
+let match = () => 0.5;
+let matchCategories = [];
+function createMatchLookup(matrix) {
+  if (!matrix) return () => 0.5;
+  const categoryIndex = new Map(matrix.categories.map((id, i) => [id, i]));
+  const labelIndex = new Map(matrix.labels.map((id, i) => [id, i]));
+  return (categoryId, labelId) => {
+    const i = categoryIndex.get(categoryId);
+    const j = labelIndex.get(labelId);
+    return i === undefined || j === undefined ? 0.5 : matrix.values[i][j];
+  };
+}
 
 let audioContext; // the browser's sound engine, shared by input and playback (created on Begin)
 let player; // plays the nature sounds
@@ -97,82 +124,13 @@ let speechBusy = false; // true while Whisper is working on a segment
 let previousSpeech; // the last round's 16 kHz samples, so Whisper can hear 10 s (step 5)
 let latestMeaning = 0; // numbers each sentence being understood, so an old one can't override a newer one (step 8)
 
-// ---- p5 visuals ----
-// The professor's examples use "global mode": you write function setup() / function draw() directly.
-// Inside a module, p5 cannot find a setup written that way, so we use "instance mode":
-// the whole sketch is one function, and p5 hands it a parameter called p.
-// Everything you used to write directly, like createCanvas or background,
-// is written here as p.createCanvas, p.background.
-// Both modes can do exactly the same things; this one just adds "p." in front.
-let showPicture; // showPicture(file): fade to this image (step 7). Set by the sketch below.
-
-const sketch = (p) => {
-  let energy = 0; // 0 = silence, 1 = loud voice, smoothed so it doesn't flicker
-  let current; // the image fading in (or already shown): { picture, since }
-  let previous; // the one it is fading in over
-  let requests = 0; // counts showPicture calls, so a slow load can't replace a newer image
-
-  // loadImage downloads and decodes the image; "await" waits until it's done
-  showPicture = async (file) => {
-    const ticket = ++requests;
-    const picture = await p.loadImage(file);
-    if (ticket !== requests) return; // a newer image was asked for meanwhile
-    previous = current;
-    current = { picture, since: p.millis() };
-  };
-
-  p.setup = () => {
-    p.createCanvas(p.windowWidth, p.windowHeight);
-    p.noStroke();
-  };
-
-  p.draw = () => {
-    const target = p.constrain(p.map(live.levelDb, -60, -20, 0, 1), 0, 1);
-    energy = p.lerp(energy, target, 0.15);
-    p.background(12, 20, 19);
-
-    // The images (step 7): the new one fades in over the old one, then the old one is dropped.
-    // Step 10 replaces this simple fade with shaders.
-    if (current) {
-      const fade = Math.min(1, (p.millis() - current.since) / (CONFIG.images.fadeSeconds * 1000));
-      if (previous) drawCover(previous, 1);
-      drawCover(current, fade);
-      if (fade === 1) previous = undefined;
-    }
-
-    // Placeholder: a few slowly breathing lights that swell when someone speaks.
-    const t = p.millis() / 1000;
-    for (let i = 0; i < 5; i++) {
-      const x = p.width * (0.5 + 0.3 * Math.sin(t * 0.13 + i * 1.7));
-      const y = p.height * (0.5 + 0.25 * Math.cos(t * 0.11 + i * 2.3));
-      const size = Math.min(p.width, p.height) * (0.35 + 0.1 * Math.sin(t * 0.5 + i)) * (1 + energy * 0.6);
-      p.fill(120, 200, 170, 18 + energy * 40);
-      p.circle(x, y, size);
-    }
-  };
-
-  // Draws an image so it covers the whole canvas (cropping the sides or the top and
-  // bottom, never stretching), at a given opacity (0–1). It also zooms in very
-  // slowly (+4% over 20 s), so a still picture doesn't look frozen.
-  function drawCover({ picture, since }, opacity) {
-    const zoom = 1 + 0.04 * Math.min(1, (p.millis() - since) / 20000);
-    const scale = Math.max(p.width / picture.width, p.height / picture.height) * zoom;
-    const w = picture.width * scale;
-    const h = picture.height * scale;
-    // drawingContext is the browser's own canvas; globalAlpha sets the opacity of what is drawn next
-    p.drawingContext.globalAlpha = opacity;
-    p.image(picture, (p.width - w) / 2, (p.height - h) / 2, w, h);
-    p.drawingContext.globalAlpha = 1;
-  }
-
-  // When the window is resized, resize the canvas with it
-  p.windowResized = () => {
-    p.resizeCanvas(p.windowWidth, p.windowHeight);
-  };
-};
-
-// window.p5 comes from p5.min.js, which index.html loads with a <script> tag
-new window.p5(sketch, document.getElementById("stage"));
+// ---- Visuals (steps 7 and 10) ----
+// Everything you see lives in src/visuals/: the p5 sketch (visuals.js) and the shader
+// that draws every pixel (shaders/image.frag). main.js only says which image to show
+// (visuals.showPicture) and keeps `live.levelDb` and `live.mismatch` up to date; the
+// sketch reads those by itself. To redesign the look, start there — or try ideas
+// first in experiments/visuals-lab/, a page with sliders that touches none of this.
+const visuals = createVisuals(document.getElementById("stage"), live);
 
 // ---- Models (step 4) ----
 // Start downloading the models right away, while the visitor reads the start screen.
@@ -284,12 +242,16 @@ try {
   if (llmSwitchedOn()) llm = createLlmLabeller(library.labels);
   showLlm();
 
-  // The text model needs the label table to compare transcripts with.
+  // The text model needs the label table to compare transcripts with, and (step 10)
+  // the sound-category table, to build the mismatch lookup used by the visuals.
   // (The worker waits for its models to load before it starts on this.)
+  const soundCategories = await loadSoundCategories();
   speechModel
-    .call("labels", { labels: library.labels })
-    .then(() => {
+    .call("labels", { labels: library.labels, soundCategories })
+    .then(({ matchMatrix }) => {
       modelState["Text model"] = "ready";
+      match = createMatchLookup(matchMatrix);
+      matchCategories = matchMatrix?.categories ?? [];
       debug.enableTyping((text) => understand(text, tracked(debug.addTyped(text), { input: "typed", transcript: text })));
     })
     .catch((error) => {
@@ -347,7 +309,6 @@ async function begin(recording, deviceId) {
   }
 
   startScreen.hidden = true;
-  debug.show();
   debug.setInput(capture.label, capture.sampleRate);
 
   if (capture.microphone) {
@@ -451,7 +412,17 @@ async function soundPath(samples, round, cutAt) {
   try {
     const { vector, ms } = await soundModel.call("embed", { samples });
     const choice = soundChooser.choose(vector);
-    round.sound({ ...choice, ms });
+    const { otherMatches, ...selection } = choice;
+    round.sound({ ...selection, ms });
+    live.soundCategory = choice.chosen.sound.category; // for the visuals' mismatch (step 10)
+    live.soundId = choice.chosen.sound.id;
+    // Keep eligible clips first, then fill the HUD with other close matches.
+    live.soundCandidates = [...choice.candidates, ...otherMatches].map(({ sound, score, probability }) => ({
+      id: sound.id,
+      category: sound.category,
+      score,
+      weight: probability ?? 0,
+    }));
     await player.play(choice.chosen.sound.file); // 10 s, fading in over whatever is still playing
     took("sound", round, cutAt);
     debug.setNowPlaying(choice.chosen.sound);
@@ -503,6 +474,7 @@ async function understand(text, round, cutAt) {
     const { ranking, ms } = await speechModel.call("label", { text });
     round.label({ ranking, ms, source: "local" });
     label = ranking[0].id;
+    live.labelCandidates = ranking; // for the embedding HUD (step 10)
   } catch (error) {
     console.error(error);
     round.note(`labelling failed: ${error.message}`, "speech");
@@ -527,16 +499,37 @@ async function understand(text, round, cutAt) {
   await showImage(label, round, since, cutAt !== undefined);
 }
 
-// ---- Images (step 7) ----
-// The label's next image (from its shuffle bag) fades in over the current one.
+// ---- Images (step 7) and the visuals' mismatch (step 10) ----
+// The label's next image (from its shuffle bag) dissolves in over the current one.
+// How that dissolve looks, and the look of the image while it's on screen, both
+// come from "mismatch": how well the sound most recently chosen (live.soundCategory
+// — not necessarily chosen on this exact round, since the two paths run independently,
+// but almost always close in time) agrees with this label. live.mismatch is read
+// live, every frame, by the visuals — see src/visuals/visuals.js. This is also where
+// the embedding HUD (step 10) gets this round's story: the candidates each path
+// ranked, which ones won, and the mismatch between them.
 // counted: include the time in the session summary (not for typed sentences)
 async function showImage(label, round, since, counted) {
   const choice = imageChooser?.next(label);
   if (!choice) return round.note(`no images for “${label}”`, "speech");
-  round.image(choice);
+  live.mismatch = 1 - match(live.soundCategory, label);
+  round.image({ ...choice, mismatch: live.mismatch });
   live.image = choice.image;
+  // Before any audio result, show category associations from the match table.
+  // These scores describe the image label's associations, not a CLAP ranking.
+  const soundCandidates = live.soundCandidates ?? matchCategories
+    .map((category) => ({ id: category, category, score: match(category, label), weight: 0, association: true }))
+    .sort((a, b) => b.score - a.score);
+  visuals.showAnalysis({
+    soundCandidates,
+    labelCandidates: live.labelCandidates ?? [],
+    chosenSoundId: live.soundId,
+    chosenLabel: label,
+    mismatch: live.mismatch,
+    match, // so the HUD can colour every candidate pair's own real mismatch, not just the chosen one
+  });
   try {
-    await showPicture(choice.image.file);
+    await visuals.showPicture(choice.image.file);
     took("image", round, since, { counted });
   } catch (error) {
     console.error(error);

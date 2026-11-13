@@ -11,7 +11,9 @@
 //
 // Messages it understands:
 //   { type: "load" }                → loads both models (sent right away) → { whisper }
-//   { type: "labels", labels }      → embeds every label once (sent when the label table is in)
+//   { type: "labels", labels, soundCategories } → embeds every label once (sent when the
+//            label table is in); if soundCategories is also given, embeds those too and
+//            returns { matchMatrix }, comparing every sound category with every label (step 10)
 //   { type: "transcribe", samples } → { text, language, seconds, ms }
 //   { type: "label", text }         → { ranking: [{ id, score }…] best first, ms }
 
@@ -181,6 +183,43 @@ function similarity(a, b) {
   return sum;
 }
 
+// Compares every sound category with every image label (by their English
+// descriptions, embedded with the same multilingual model) and turns the raw
+// similarities into a 0–1 "how well do these go together" score (step 10's
+// "mismatch" is 1 minus this).
+//
+// This is a PERCENTILE RANK, not a min–max scale: each pair's score is where it
+// falls among all the others (0 = the worst pair in the whole table, 1 = the
+// best, 0.5 = exactly in the middle), not how close its raw similarity is to the
+// best/worst value. Checked on 2026-11-13: the 432 raw similarities cluster
+// fairly narrowly (median similarity only a little above the lowest one), so a
+// min–max scale left almost every real pairing reading as "fairly mismatched" —
+// the visuals looked busy and unclear almost all the time, whatever was actually
+// chosen. Ranking guarantees an even spread instead: about half of all pairings
+// land below 0.5 and half above, whatever the raw numbers look like, so a
+// "typically good" pairing reads as calm and a visitor can tell the two from the
+// occasional truly bad one.
+function buildMatchMatrix(categories, categoryVectors, labelIds, labelVectors) {
+  const raw = categoryVectors.map((categoryVector) => labelVectors.map((labelVector) => similarity(categoryVector, labelVector)));
+  const sorted = [...raw.flat()].sort((a, b) => a - b);
+  const rank = (value) => {
+    // How many sorted values are below this one (binary search), as a 0–1 fraction
+    let lo = 0;
+    let hi = sorted.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (sorted[mid] < value) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo / (sorted.length - 1);
+  };
+  return {
+    categories: categories.map((category) => category.id),
+    labels: labelIds,
+    values: raw.map((row) => row.map(rank)),
+  };
+}
+
 self.onmessage = async ({ data }) => {
   try {
     const models = await load();
@@ -196,6 +235,12 @@ self.onmessage = async ({ data }) => {
       const texts = data.labels.map((label) => `${label.name}: ${label.description}`);
       const vectors = await embedTexts(models.embed, texts);
       labels = data.labels.map((label, i) => ({ id: label.id, vector: vectors[i] }));
+
+      // Step 10: also compare every sound category with every label, for the visuals' mismatch.
+      if (data.soundCategories?.length) {
+        const categoryVectors = await embedTexts(models.embed, data.soundCategories.map((c) => c.description));
+        result.matchMatrix = buildMatchMatrix(data.soundCategories, categoryVectors, labels.map((l) => l.id), vectors);
+      }
     }
 
     if (data.type === "transcribe") {

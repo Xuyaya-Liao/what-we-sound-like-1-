@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Visuals lab — What We Sound Like, What We Say</title>
+  <!--
+    This is a design tool, not the piece itself: a standalone page for tuning the
+    visuals v2 shader (shaders/image.frag) before it goes into the real app. It
+    does not import anything from ../../src/, and nothing here affects the real
+    site. See ../../README.md once this step is written up, and the long comment
+    at the top of shaders/image.frag for what every slider actually does.
+  -->
+  <script src="https://cdn.jsdelivr.net/npm/p5@2.3.4/lib/p5.min.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #08090a;
+      --panel-bg: rgba(10, 14, 13, 0.88);
+      --text: #e7efec;
+      --muted: #8ba39b;
+      --accent: #7fe6c6;
+      --border: #27413b;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.4 system-ui, sans-serif;
+      overflow: hidden;
+    }
+    #stage { position: fixed; inset: 0; }
+    #stage canvas { display: block; }
+
+    #readout {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      padding: 6px 10px;
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      pointer-events: none;
+      white-space: pre;
+    }
+
+    #panel {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: 340px;
+      overflow-y: auto;
+      padding: 16px;
+      background: var(--panel-bg);
+      border-left: 1px solid var(--border);
+      backdrop-filter: blur(4px);
+    }
+    #panel h1 {
+      font-size: 15px;
+      margin: 0 0 4px;
+    }
+    #panel .intro {
+      color: var(--muted);
+      font-size: 12px;
+      margin: 0 0 14px;
+    }
+    #panel .group {
+      margin: 18px 0 6px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--accent);
+    }
+    #panel .group:first-of-type { margin-top: 0; }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 2px 8px;
+      margin: 8px 0;
+    }
+    .row span:first-child {
+      grid-column: 1 / 2;
+      font-size: 12px;
+    }
+    .row .value {
+      grid-column: 2 / 3;
+      color: var(--muted);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+    }
+    .row input[type="range"] {
+      grid-column: 1 / 3;
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    .buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin: 14px 0;
+    }
+    button {
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--accent); }
+    .auto-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    #copy-status {
+      display: block;
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--muted);
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <div id="stage"></div>
+  <div id="readout"></div>
+
+  <aside id="panel">
+    <h1>Visuals lab</h1>
+    <p class="intro">
+      <b>Mismatch</b> always drives the image on screen, live — drag it and the look
+      changes at once. Click <b>Switch image</b> to bring in a new one: the old
+      image's mismatch freezes at whatever the slider said right then, and the
+      hand-over eases from that into whatever you set next.
+    </p>
+
+    <div class="buttons">
+      <button id="switch-button">Switch image</button>
+      <label class="auto-row">
+        <input type="checkbox" id="auto-toggle" />
+        Auto-cycle (random mismatch each time)
+      </label>
+      <button id="copy-button">Copy current settings</button>
+      <span id="copy-status"></span>
+    </div>
+
+    <div id="panel-controls"></div>
+  </aside>
+
+  <script type="module" src="lab.js"></script>
+</body>
+</html>

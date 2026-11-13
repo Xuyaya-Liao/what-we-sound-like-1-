@@ -1,0 +1,23 @@
+{
+  "_about": "The nature-sound categories in the sound library (see each sound's 'category' field in data/manifest.json). Used only for the visuals (step 10): the text model embeds these descriptions and config/labels.json's descriptions with the same model, so each sound category can be compared with each image label — how well 'what we hear' and 'what we see' agree. Not shown to visitors, not sent to the LLM. Edit freely; takes effect on the next page load, no build step needed.",
+  "categories": [
+    { "id": "rain", "description": "steady rain falling, a rain shower or storm" },
+    { "id": "ocean", "description": "ocean waves and surf along a shore" },
+    { "id": "frogs", "description": "frogs calling in a pond, marsh or wetland" },
+    { "id": "marine_mammals", "description": "whale or dolphin calls, underwater or near the surface" },
+    { "id": "flowing_water", "description": "a stream or river flowing over rocks" },
+    { "id": "birds", "description": "wild birds singing and calling" },
+    { "id": "thunder", "description": "thunder rolling, an approaching storm" },
+    { "id": "geothermal", "description": "a geyser or hot spring, bubbling geothermal ground" },
+    { "id": "insects", "description": "crickets or cicadas chirring" },
+    { "id": "mammals", "description": "a wild land mammal, such as a fox, calling or moving" },
+    { "id": "waterfall", "description": "a waterfall, rushing falling water" },
+    { "id": "wetland_ambience", "description": "the ambient sound of a marsh or wetland" },
+    { "id": "wind", "description": "wind blowing, gusting through trees or grass" },
+    { "id": "fire", "description": "a crackling fire or wildfire" },
+    { "id": "forest_ambience", "description": "the ambient sound of a forest" },
+    { "id": "night_ambience", "description": "quiet night sounds in nature" },
+    { "id": "bats", "description": "bat calls and echolocation clicks" },
+    { "id": "ice_snow", "description": "ice cracking or creaking, a frozen landscape" }
+  ]
+}

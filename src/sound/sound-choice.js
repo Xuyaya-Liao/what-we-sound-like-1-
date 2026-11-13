@@ -134,7 +134,10 @@ export function createSoundChooser({ sounds, voiceMean: referenceVoiceMean }) {
       for (let i = 0; i < voiceMean.length; i++) {
         voiceMean[i] += voiceAdapt * (query[i] - voiceMean[i]);
       }
-      return { candidates, chosen, resting: ranking.length - awake.length, centering };
+      // Expose close matches for the HUD while keeping the same playback draw.
+      const candidateIds = new Set(candidates.map(({ sound }) => sound.id));
+      const otherMatches = ranking.filter(({ sound }) => !candidateIds.has(sound.id));
+      return { candidates, chosen, otherMatches, resting: ranking.length - awake.length, centering };
     },
   };
 }
