@@ -137,7 +137,10 @@ export function createSoundChooser({ sounds, voiceMean: referenceVoiceMean }) {
       // Expose close matches for the HUD while keeping the same playback draw.
       const candidateIds = new Set(candidates.map(({ sound }) => sound.id));
       const otherMatches = ranking.filter(({ sound }) => !candidateIds.has(sound.id));
-      return { candidates, chosen, otherMatches, resting: ranking.length - awake.length, centering };
+      // compared: the vector the sounds were actually compared with (centered, when
+      // centering is on), for the sound screen's vector ring (DESIGN-two-screens.md)
+      const compared = centering ? centeredQuery : query;
+      return { candidates, chosen, otherMatches, resting: ranking.length - awake.length, centering, compared };
     },
   };
 }

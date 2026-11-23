@@ -56,10 +56,13 @@ export function createDebugPanel() {
   const jsonButton = make("button", "JSON");
   const csvButton = make("button", "CSV");
   const clearButton = make("button", "Clear");
+  const replayButton = make("button", "Replay");
   jsonButton.title = "Download every round, with the settings, as JSON";
   csvButton.title = "Download one row per round, for Excel or Google Sheets";
   clearButton.title = "Empty the log";
-  logRow.append(logCount, jsonButton, " ", csvButton, " ", clearButton, tagShown, tagBox);
+  replayButton.title =
+    "Download everything the screens were shown since Begin, to play back later with ?replay= (see src/shared/replay.js)";
+  logRow.append(logCount, jsonButton, " ", csvButton, " ", clearButton, " ", replayButton, tagShown, tagBox);
   const typing = make("input", undefined, "debug-typing");
   typing.placeholder = "Type a sentence to test the meaning path, then Enter";
   typing.disabled = true; // until the models are ready
@@ -128,7 +131,8 @@ export function createDebugPanel() {
 
     // The experiment log's controls (step 9). Each on…() is called when its button is
     // clicked; onTag(text) when a tag is entered ("" clears it).
-    setupLog({ onTag, onJson, onCsv, onClear }) {
+    setupLog({ onTag, onJson, onCsv, onClear, onReplay }) {
+      replayButton.onclick = onReplay;
       tagBox.addEventListener("keydown", (event) => {
         event.stopPropagation(); // so typing "d" doesn't hide the panel
         if (event.key !== "Enter") return;

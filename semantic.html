@@ -1,0 +1,26 @@
+<!doctype html>
+<!--
+  semantic.html: the SEMANTIC screen ("what we say"), for the second display.
+  It only draws: no microphone, no models, no sound. Everything it shows comes from
+  index.html (the engine), running in another window of the same browser, through
+  the bus (src/shared/bus.js). Open index.html first, then this page, and move each
+  window to its display (F11 makes a window full screen). See DESIGN-two-screens.md.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>What We Sound Like · semantic</title>
+  <link rel="stylesheet" href="./style.css">
+  <!-- p5.js draws the image (see the note in index.html about the pinned version) -->
+  <script src="https://cdn.jsdelivr.net/npm/p5@2.3.4/lib/p5.min.js"></script>
+</head>
+<body>
+  <div id="screens">
+    <div id="semantic-screen" class="screen"></div>
+  </div>
+  <!-- Shown until the engine is first heard from -->
+  <p id="waiting" class="waiting">Waiting for the sound screen (index.html) in another window of this browser…</p>
+  <script type="module" src="./src/semantic-main.js"></script>
+</body>
+</html>

@@ -44,7 +44,9 @@ const contextsWithWorklet = new WeakSet();
 //   onLevel(db): called many times a second with the current loudness, for meters and visuals
 //   onEnd(): called when a recording has finished playing
 // Returns an object with stop(), plus details for the debug panel.
-export async function startCapture({ context, recording, deviceId, loop = false, onSegment, onLevel, onEnd }) {
+//   onPeek(peek): called once partway through each segment (CONFIG.speech.peekSeconds)
+//     with { samples, sampleRate, levelDb }: the part of the segment collected so far
+export async function startCapture({ context, recording, deviceId, loop = false, onSegment, onPeek, onLevel, onSamples, onEnd }) {
   // The AudioContext runs at its own sample rate (usually 48000, sometimes 44100).
   // Resampling to what each model needs happens later, in resample.js.
   if (!contextsWithWorklet.has(context)) {
@@ -106,24 +108,41 @@ export async function startCapture({ context, recording, deviceId, loop = false,
   let index = 0;
   let consumed = 0; // samples already handed over in earlier segments
 
+  // Halfway through a segment, onPeek gets what has been collected so far (see
+  // CONFIG.speech.peekSeconds), so the words can reach the screen before the round ends
+  const peekLength = Math.round((CONFIG.speech.peekSeconds || 0) * context.sampleRate);
+  let peeked = false;
+
   collector.port.onmessage = ({ data: batch }) => {
     onLevel?.(levelDb(batch));
+    onSamples?.(batch, context.sampleRate);
     pending.push(batch);
     pendingLength += batch.length;
     while (pendingLength >= segmentLength) emit(segmentLength);
+    if (onPeek && peekLength && !peeked && pendingLength >= peekLength && peekLength < segmentLength) {
+      peeked = true;
+      const samples = joinPending();
+      onPeek({ samples, sampleRate: context.sampleRate, levelDb: levelDb(samples) });
+    }
   };
 
-  // Glue the waiting batches together, cut off one segment, keep the leftover.
-  function emit(length) {
+  function joinPending() {
     const joined = new Float32Array(pendingLength);
     let at = 0;
     for (const batch of pending) {
       joined.set(batch, at);
       at += batch.length;
     }
+    return joined;
+  }
+
+  // Glue the waiting batches together, cut off one segment, keep the leftover.
+  function emit(length) {
+    const joined = joinPending();
     const samples = joined.slice(0, length);
     pending = [joined.slice(length)];
     pendingLength = joined.length - length;
+    peeked = false; // the next segment gets its own peek
 
     const db = levelDb(samples);
     onSegment({

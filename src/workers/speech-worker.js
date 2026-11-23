@@ -16,6 +16,7 @@
 //            returns { matchMatrix }, comparing every sound category with every label (step 10)
 //   { type: "transcribe", samples } → { text, language, seconds, ms }
 //   { type: "label", text }         → { ranking: [{ id, score }…] best first, ms }
+//   { type: "words", words }        → { labels: [ids], scores: [[per label]…] one row per word, ms }
 
 import { CONFIG } from "../config.js";
 
@@ -258,6 +259,20 @@ self.onmessage = async ({ data }) => {
         text,
         language: models.start.languageOf(tokens),
         seconds: data.samples.length / CONFIG.speechSampleRate, // how much it heard: 5 or 10 s
+        ms: Math.round(performance.now() - started),
+      };
+    }
+
+    // Step 3 of DESIGN-two-screens.md: every word of a transcript compared with every
+    // label, for the semantic screen's ring of words (each word's weight, and which
+    // word each label box links to). One batch, so a whole sentence costs one call.
+    if (data.type === "words") {
+      if (!labels) throw new Error("The labels are not loaded yet");
+      const started = performance.now();
+      const vectors = data.words.length ? await embedTexts(models.embed, data.words) : [];
+      result = {
+        labels: labels.map((label) => label.id),
+        scores: vectors.map((vector) => labels.map((label) => similarity(vector, label.vector))),
         ms: Math.round(performance.now() - started),
       };
     }

@@ -16,6 +16,12 @@ export const CONFIG = {
   // marked "quiet", raise it. (step 3)
   quietBelowDb: -50,
 
+  // After this many rounds in a row with no words (quiet, or nothing Whisper
+  // recognised), the nature sounds fade out and both screens go back to dark, until
+  // the next words (2026-11-21). 1 = straight away; 2 = a short pause (5 s) doesn't
+  // darken, a longer one does.
+  darkAfterSilentRounds: 2, // about 10 s (was 4, changed 2026-11-23)
+
   // Microphone settings (step 3). Browsers "clean up" voices by default; for this
   // piece we want the raw timbre, so we only keep echo cancellation, which stops
   // the nature sounds coming out of the speakers from being heard as the visitor.
@@ -41,6 +47,14 @@ export const CONFIG = {
     // Whisper hears the last 10 s (the previous round + this one), still once every 5 s.
     // A sentence cut in half at a round boundary is then heard whole the next time.
     listenSeconds: 10,
+    // An early look, so the words reach the semantic screen's ring sooner (2026-11-21):
+    // this far into each round, Whisper also hears the last round + the part of this one
+    // collected so far, and any new words go onto the ring straight away. Only the
+    // ring: the sound and the image still change together, at the end of the round.
+    // 0 = off. On the processor ("base · CPU") Whisper is too slow to do this as well
+    // as the full round, so it only runs on the graphics card unless peekOnCpu is true.
+    peekSeconds: 2.5,
+    peekOnCpu: false,
     // Which Whisper to use. The first one this computer can run is used:
     //   gpu: "small" on the graphics card (WebGPU). Much more accurate, ~1–2 s per round.
     //        Needs a browser with WebGPU and a GPU that does 16-bit maths ("shader-f16").
@@ -87,7 +101,9 @@ export const CONFIG = {
     recent: 4, // avoid the last 4 images shown (at most half of a label's images)
   },
 
-  // The visuals (step 10, see src/visuals/). Everything here is also a slider in the
+  // The visuals (step 10). Since the two-screen redesign (DESIGN-two-screens.md):
+  // soundVisualization is the sound screen's ring (src/views/sound/), visuals is the
+  // semantic screen's image shader (src/views/semantic/). Most of visuals is also a slider in the
   // design tool at experiments/visuals-lab/ — tune it there first, then copy the
   // numbers here. The whole look is driven by TWO numbers computed each round:
   //   mismatch (0–1): how well the chosen sound's category and the chosen image's
@@ -97,6 +113,95 @@ export const CONFIG = {
   //   energy (0–1): the voice's current loudness, smoothed. Only ever a LIGHT,
   //     secondary role here (see energyJitter / energyGlow below) — never colour,
   //     never the warp, by design decision (2026-11-13).
+  // The live input spectrum: since step 2 of the redesign, a small ring at the very
+  // centre of the sound screen, inside the vector ring (src/views/sound/sound-visualization.js)
+  soundVisualization: {
+    fftSize: 4096, // latest ~85 ms at 48 kHz, not a scrolling history
+    bands: 256,
+    minHz: 40, // logarithmic bands, from the top clockwise around the ring
+    maxHz: 16000,
+    floorDb: -78,
+    ceilingDb: -24,
+    radius: 0.05, // fraction of the shorter side of the screen
+    radialReach: 0.06, // maximum outward extension in the same units
+  },
+
+  // The sound screen (step 2 of DESIGN-two-screens.md, src/views/sound/sound-view.js).
+  // Sizes are fractions of the screen's shorter side.
+  soundScreen: {
+    // The CLAP vector ring: one ray per dimension (512), in the order of
+    // data/vector-ring.json (npm run build:ring). A ray points out where this voice is
+    // higher than usual on that dimension, in where it is lower.
+    // 2026-11-21: reach doubled (and the ring a little smaller to make room) so the
+    // shape changes visibly from round to round.
+    ringRadius: 0.16,
+    rayReach: 0.12, // the length of a ray 2.4 "usual amounts" away from average
+    // A new round's vector reshapes the ring over this long, easing in and out. A round
+    // is 5 s, so with 4.5 the ring is almost always on its way to a new shape (2026-11-21).
+    morphSeconds: 4.5,
+    // A slow undulation on top of the real shape, so the ring keeps moving even when no
+    // new vector comes (silence): broad waves travelling round it. In rayReach units;
+    // 0 = off. driftSeconds: roughly how long one wave takes to go round.
+    driftAmount: 0.16,
+    driftSeconds: 14,
+    // The bright outline follows the rays averaged with this many neighbours on each
+    // side (the raw rays are drawn faintly underneath). 0 = no smoothing; higher =
+    // fewer, broader bulges.
+    smoothRays: 10,
+    ghosts: 2, // faint outlines of the last rounds' shapes, so a change in the voice shows
+    // Each ray's brightness rises and falls on its own cycle, out of step with its
+    // neighbours (the ring's SIZE never follows the voice's loudness any more)
+    breathMinSeconds: 1.8, // the quickest ray's cycle
+    breathMaxSeconds: 5.5, // the slowest ray's cycle
+    breathDepth: 0.75, // 0 = no breathing; 1 = a ray fades right out at the low point
+    // The box of the sound now playing shows that sound, live: a waveform across the
+    // middle and its spectrum as bars, mirrored (src/views/sound/sound-view.js)
+    playingBoxWidth: 200, // at least this big, so there is room for it
+    playingBoxHeight: 86,
+    // The candidate sounds. Each sound category has its own fixed direction around
+    // the ring (the order of config/sound-categories.json, clockwise from the top), so
+    // over time "rain lives up and to the right". The most similar candidate sits
+    // closest to the ring, the least similar farthest out; size = chance of being drawn.
+    nearest: 0.04, // the gap between the ring's usual outer edge and the closest box
+    roundFadeSeconds: 1.2, // the last round's boxes and lines fade out over this
+    maxEntryDelay: 0.6, // boxes of a new round appear one by one, within this many seconds
+  },
+
+  // The semantic screen (step 3 of DESIGN-two-screens.md, src/views/semantic/).
+  // Sizes are fractions of the screen's shorter side.
+  semanticScreen: {
+    // The ring of words: each slot around the circle holds one word of what was said;
+    // new words replace the oldest in turn. A word's ray is as long as its weight:
+    // how similar it is to the chosen label (the local text model, also when the LLM
+    // chose the label). The heaviest word gets a box.
+    wordSlots: 24,
+    // Only words Whisper heard in these languages go onto the ring (Whisper's own
+    // language codes). In noise, Whisper often "hears" Korean, Japanese, Arabic… that
+    // nobody said, and on the ring it looked like garbled text (2026-11-21). Add a
+    // language here if visitors will speak it. [] = every language.
+    ringLanguages: ["zh", "en"],
+    ringRadius: 0.14,
+    rayReach: 0.06, // the ray of the heaviest word on the ring (shorter since 2026-11-21: the words matter more)
+    newWordSeconds: 0.18, // new words arrive one after another, this far apart (was 0.35: a long sentence took seconds to appear)
+    // Words get white boxes, as visible as they are meaningful (0 = the least
+    // meaningful word on the ring, 1 = the most, which is gold). Words below
+    // wordBoxFrom get none; above it the opacity rises slowly (cubed), so most boxes
+    // are faint, up to wordBoxMax for the strongest. Each round, a random wordBoxSkip
+    // of the words get no box at all, and the rest each get a different faintness.
+    // (Fewer and fainter since 2026-11-21: there were too many, too clear.)
+    wordBoxFrom: 0.4,
+    wordBoxMax: 0.6,
+    wordBoxSkip: 0.35,
+    // The image labels shown as boxes around the ring: the chosen one, plus a few of
+    // the others — half from the top of the local ranking, half at random, so most
+    // lines mean something and a few are surprises. (4 looked too sparse, 2026-11-20.)
+    otherLabels: 9,
+    labelFadeSeconds: 0.5, // the last round's label boxes fade out over this (short, so two rounds' boxes don't pile up)
+    // The new image spreads out from the chosen label's box, over transitionSeconds
+    // (under visuals); its edge is broken up by the dissolve grid's noise
+    spreadRoughness: 0.12,
+  },
+
   visuals: {
     // The dissolve from one image to the next: a grid-cell "break apart", not an
     // even fade. Cells reveal in a scattered order; mismatch scrambles that order
@@ -105,6 +210,12 @@ export const CONFIG = {
     // mismatched image arrives in small, quick pieces rather than big slow ones.
     transitionSeconds: 1.6,
     dissolveGrid: 9,
+
+    // How long mismatch takes to glide (most of the way, ~63%) to a new value,
+    // instead of jumping: when a new image arrives, and when a new sound changes how
+    // well the image on screen fits (that happens every round, independently of the
+    // image). Added 2026-11-20; before, both made the look change in one frame.
+    mismatchEaseSeconds: 0.6,
 
     // How long, after a dissolve finishes, the busiest effects take to ease down
     // to their resting level (restActivity — see below), and how low that resting
@@ -169,7 +280,7 @@ export const CONFIG = {
 
     // Images bigger than this (on their longest side) are shrunk once when
     // loaded. Only the two images actually on screen (current and the one it's
-    // dissolving over) are ever kept in graphics memory — see src/visuals/visuals.js
+    // dissolving over) are ever kept in graphics memory — see src/views/semantic/semantic-view.js
     // — so a whole visit's worth of images never piles up. 1 = one shader pixel
     // per CSS pixel; higher looks sharper but costs the graphics card more.
     maxImageSide: 2048,
@@ -228,8 +339,10 @@ export const CONFIG = {
   // the start and out at the end. A new one starts every round (5 s), so with 10 s
   // two sounds always overlap and blend into each other instead of switching.
   playback: {
+    textureMix: 0.35, // maximum granular wet mix at mismatch 1; at least 65% remains dry
     volume: 0.7, // 0 = silent, 1 = full (two sounds overlap, so leave some room)
     seconds: 10, // how long each chosen sound plays
-    fadeSeconds: 2.5, // fade-in at the start and fade-out at the end of each
+    fadeSeconds: 2.5, // fade-in at the start of each sound
+    fadeOutSeconds: 3.2, // gentle fade to silence at the end, after granular processing
   },
 };

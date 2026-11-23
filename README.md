@@ -17,6 +17,154 @@ For security, browsers do not let a page opened by double-clicking (a `file://` 
 Use Chrome or Edge. Headphones are recommended, so the microphone doesn't pick up the
 nature sounds the piece plays.
 
+### Two screens (since 2026-11-20)
+
+The piece is shown on two displays (design: `DESIGN-two-screens.md`):
+
+- **The sound screen**, `index.html` ("how we say it"). This page is also the engine: it
+  listens, runs the models and plays the nature sounds. Click Begin here.
+- **The semantic screen**, `semantic.html` ("what we say"): the image and its HUD. It runs
+  no models and opens no microphone; it follows the sound screen by itself.
+
+For the exhibition: open <http://localhost:5510/>, click "Open the semantic screen" on the
+start screen (or open <http://localhost:5510/semantic.html> yourself), drag each window to
+its display and press F11 in each. Both must be windows of the **same browser**: they talk
+through a BroadcastChannel (`src/shared/bus.js`), which only links pages of one browser.
+The semantic screen can be opened, closed or reloaded at any time; it shows
+"Waiting for the sound screen…" until it hears from it, and picks up the current image
+straight away.
+
+For development, or with only one display: <http://localhost:5510/?view=both> shows both
+screens side by side in one window. It combines with everything below (`?view=both&input=…`).
+
+### The semantic screen (step 3, 2026-11-20)
+
+The step-10 image and shader stay underneath (mismatch still distorts the image). On top,
+replacing the old embedding HUD (code: `src/views/semantic/word-overlay.js`, settings:
+`semanticScreen` in `src/config.js`):
+
+- **A ring of words** in the centre: what the visitor said, one word per ray, 24 slots,
+  each word written along its ray, reading outwards (turned round on the left half so it
+  is never upside down).
+  New words replace the oldest in turn, one after another, like a hand sweeping round.
+  Whisper hears every sentence twice (the 10-second window), so the words already heard in
+  the last round are left out (`src/semantic/words.js`). Words are split with the
+  browser's `Intl.Segmenter`, which handles Chinese too.
+- **Each word's weight** is its similarity to the label chosen this round (the local text
+  model compares every new word with every label in one batch, the worker's `words`
+  call). The ray is as long as the weight; the heaviest word is boxed in gold. Other words
+  may get a white box as visible as their weight: none below `wordBoxFrom`, then faint for
+  most, up to `wordBoxMax`; each round a random `wordBoxSkip` share of the words get none,
+  and the rest each a different faintness, so the boxes change from round to round. The
+  words' letters are drawn 15% wider and 15% flatter than the font.
+  With the LLM on, the label is the LLM's but the weights are still the local model's: they
+  show which word is closest to that label, not why the LLM chose it.
+- **Label boxes** around the ring: the chosen one, plus 9 others (5 from the top of the
+  local ranking, 4 at random), spread evenly round the screen without overlapping; the
+  chosen one sits straight out from its word. Each links to the word on the ring most
+  similar to it, meeting the word at its outer end; the chosen label links to the boxed
+  word, in gold. The others are white → red by how badly that label fits the sound playing
+  now.
+- **Only expected languages count** (`semanticScreen.ringLanguages`, default Chinese and
+  English). In noise Whisper often "hears" Korean, Japanese, Arabic… that nobody said,
+  which looked like garbled text on the ring. Those rounds count as having no words (see
+  "No words, no picture"; the debug panel notes why). Add a language code there if
+  visitors will speak it.
+- **Fixed 2026-11-21**: on a scaled screen (e.g. Windows at 150%) the whole overlay sat
+  off-centre: its canvas was shown at its pixel size instead of the screen's size. Stray
+  characters ("�", left when Whisper's text ends halfway through a Chinese character, and
+  invisible control characters) are now removed (`src/semantic/transcript.js`, `words.js`).
+- **The new image spreads out from the chosen label's box** (`uOrigin` in the shader),
+  with a ragged edge on the dissolve grid, more ragged the higher the mismatch.
+
+### The sound screen (step 2, 2026-11-20)
+
+On black, from the centre out (code: `src/views/sound/`, settings: `soundScreen` in
+`src/config.js`):
+
+- **The live input spectrum**, a small ring that moves with every syllable.
+- **The CLAP vector ring**: the exact 512 numbers the sound choice compared with the
+  library this round (centered: how this voice differs from an average voice). One faint
+  ray per dimension, pointing out where the voice is higher than usual on it, in where it
+  is lower; the bright outline is the same shape smoothed, so its broad bulges can be read.
+  A new round's shape is reached slowly, easing over 4.5 s (`morphSeconds`) of the 5-s
+  round, so the ring is almost always on its way from one voice's shape to the next; it
+  glows a little while it changes. A slow undulation, a few broad waves travelling round
+  the ring (`driftAmount`, `driftSeconds`), keeps it moving even in silence; it is
+  decoration on top of the real shape (set `driftAmount: 0` to see the vector alone). The
+  last two rounds' shapes stay behind as faint outlines, so a change of voice shows as the
+  shape moving. Each ray's brightness breathes on its own cycle (1.8–5.5 s), out of step with its
+  neighbours, so the ring shimmers between rounds. Its size never follows the voice's
+  loudness (it did at first; that read as jittery, 2026-11-21).
+- **The candidate sounds**, as HUD boxes: the 15 the sound choice ranked. **Direction** =
+  the sound's category (each category has a fixed slice of the circle), **distance** =
+  similarity (the round's best sits right by the ring, its worst farthest out), **size** =
+  the chance of being drawn. Every box has a line to the centre, invisible at the centre.
+  The sound actually drawn, the one now playing, is **gold**, with its score and chance
+  under it, and its box shows that sound live: its waveform across the middle over its
+  spectrum as mirrored bars (an AnalyserNode on that one sound, after its fades, in
+  `src/audio/player.js`). In a replay no sound plays, so the box shows a flat line. Every other box and line is white → red by how badly its category fits the
+  image on the semantic screen right now.
+
+**Why the dimensions are reordered.** CLAP's 512 numbers come in no particular order;
+drawn as given, every voice looked like the same random fuzz. `npm run build:ring`
+(`tools/build-ring-order.mjs`, part of `npm run build`, takes under a second) measures on
+the library which dimensions rise and fall together and puts those side by side, and how
+much each one usually varies, so each ray is "how unusual", not raw size. It writes
+`data/vector-ring.json`. Checked 2026-11-20: neighbouring rays' average correlation went
+from 0.01 to 0.52, and the library's shapes became about 30% smoother. Even so the raw rays
+looked noisy on real voices, which is why the bright outline is smoothed (`smoothRays`).
+Re-run it whenever `build:vectors` is re-run.
+
+### No words, no picture (2026-11-21)
+
+A round counts as having words only if Whisper recognised real text in an expected
+language (`semanticScreen.ringLanguages`; see "The semantic screen"). Otherwise (a quiet
+round, nothing recognised, a hallucination, an unexpected language) no nature sound
+plays and no image is chosen; what is showing stays (the last sound fades out on its
+own). After `darkAfterSilentRounds` such rounds in a row (2, about 10 s) the sounds fade out and both screens go back to dark: the sound screen's boxes
+fade and its vector ring shrinks back into its bare circle; the semantic screen's image
+dissolves into its dark background and its words and labels go. The next words bring
+everything back. (Bus message `dark`; a screen opened meanwhile also starts dark.)
+**Fixed 2026-11-23**: after the dark screen, the semantic screen's next image never
+appeared until the page was reloaded. The empty image slot still pointed at an image whose
+graphics memory had been freed, and p5 failed on every frame; an empty slot now gets a
+blank 1×1 stand-in (`setPicture` in `src/views/semantic/semantic-view.js`).
+
+To make this possible, the sound is now chosen and played only once Whisper has said
+whether there were words: CLAP still runs straight away, but the sound starts about 1–3 s
+later than before (Whisper's time). A round without words also no longer counts for the
+sound choice (resting, freshness, the drifting average voice). Typed sentences always
+count as words.
+
+### Words on the ring sooner: the early look (2026-11-21)
+
+Without it, a word reached the semantic screen's ring only after its 5-second round had
+ended and Whisper had finished: up to 5 s + 1–3 s after it was said. Now, 2.5 s into each
+round (`speech.peekSeconds`), Whisper also hears the last round plus the part of this one
+collected so far, and any new words go onto the ring straight away. Only the ring: the
+nature sound and the image still change together at the end of the round, so the two
+screens stay in step. The round's own transcript starts at the same moment as the early
+look's, so the words already on the ring are recognised and not added twice
+(`repeatedAtStart` in `src/semantic/words.js`). The round's Whisper waits for an early look
+still running rather than skipping.
+
+It is skipped while the screens are dark (the round's own words light them up), in a quiet
+stretch, and when Whisper runs on the processor ("base · CPU": too slow to do both; set
+`speech.peekOnCpu: true` to try anyway). The debug panel notes each one ("early look").
+New words also come in faster one after another (`semanticScreen.newWordSeconds` 0.18,
+was 0.35).
+
+### Replay: tuning the screens without speaking
+
+The debug panel's **Replay** button downloads everything the screens were shown since
+Begin. Save the file in the project folder (e.g. `recordings/zh-loop.json`), then open
+<http://localhost:5510/?replay=recordings/zh-loop.json&view=both> and click Play: the same
+rounds, sounds, transcripts and images, at the same pace. No models load, so it starts in
+a second, and no sound plays. Add `&loop` to repeat. A semantic.html window follows along
+too. The live input spectrum can't be replayed (it would need the raw samples), so the ring
+stays empty. Code: `src/shared/replay.js`, `src/replay-main.js`.
+
 **Bluetooth headphones: listen with them, but don't use their microphone.** Using a
 Bluetooth headset's mic switches it into "hands-free" (phone call) mode: playback drops
 to muffled phone quality, and on some headsets the browser receives no signal at all
@@ -72,9 +220,15 @@ How the next sound is chosen (all set in `src/config.js` under `soundChoice`):
    (`temperature`; smaller = almost always the best).
 
 Each chosen sound plays for 10 seconds (its 5-second clip twice), fading in over 2.5 s
-and out over the last 2.5 s. A new one starts every round, so two sounds always overlap
+and out over the last 3.2 s. A new one starts every round, so two sounds always overlap
 and blend instead of switching. Quiet rounds start nothing new, so in silence the last
 sound simply fades away. Length, fades and volume are under `playback`.
+
+Each sound also passes through a **granular texture** (`src/audio/texture-worklet.js`)
+before its fade: short overlapping grains and a little saturation, blended with the
+original. Its strength follows mismatch (see "The visuals"): at mismatch 0 the sound is
+untouched; at 1, up to 35% of it is the grainy version (`playback.textureMix`). Nothing
+of this touches the microphone input.
 
 Each round block also shows the meaning path:
 
@@ -231,14 +385,22 @@ files contained every field above.
 
 ### The visuals (step 10)
 
-The canvas is drawn by a **shader**, a small program that runs on the graphics card once
-for every pixel, every frame. Code is in `src/visuals/`:
+Since the two-screen redesign, everything below is the **semantic screen**. The canvas is
+drawn by a **shader**, a small program that runs on the graphics card once for every
+pixel, every frame. Code is in `src/views/semantic/`:
 
-- `visuals.js` — the p5 sketch: loads the images and the shader, smooths the voice's
-  loudness into "energy", and hands everything to the shader each frame.
+- `semantic-view.js` — the p5 sketch: loads the images and the shader, smooths the voice's
+  loudness into "energy", eases mismatch, and hands everything to the shader each frame.
 - `shaders/image.frag` — decides each pixel's colour; the comments there walk through it.
 - `shaders/image.vert` — places the rectangle that covers the screen (rarely needs changing).
-- `hud.js` — the embedding HUD, a separate 2D overlay (see below).
+- `word-overlay.js` — the ring of words and the label boxes, a separate 2D overlay (see
+  "The semantic screen" above; it replaced the embedding HUD described below).
+
+**Mismatch eases, it never jumps** (fixed 2026-11-20). It changes in two ways: a new image
+arrives, and a new sound (every round, independently of the image) changes how well the
+image on screen fits. Both now glide over about 0.6 s (`visuals.mismatchEaseSeconds`).
+Before, the value meant to ease from was already the new one, and a new sound changed the
+look in a single frame.
 
 The whole look is driven by one number, **mismatch** (0–1): how well the sound just chosen
 (its category, e.g. "thunder") and the image's label (e.g. "storm") agree. 0 = they agree,
@@ -276,7 +438,10 @@ proper, readable look at each one before it's time for the next. (Added 2026-11-
 watching the first version: between this and the ranking fix above, the piece had been
 reading as busy and unclear almost all the time, whatever was actually chosen.)
 
-**The embedding HUD.** Always on, drawn in `src/visuals/hud.js`: a separate, plain 2D
+**The embedding HUD (step 10, replaced 2026-11-20).** Kept here as the record of how
+step 10 worked; since the redesign each screen has its own overlay (see "The sound screen"
+and "The semantic screen" above), and their shared look (boxes, jitter, white → red) is
+in `src/views/hud-kit.js`. It was drawn in `src/visuals/hud.js`: a separate, plain 2D
 canvas layered over the shader (not part of it — crisp small text is painful in GLSL). It is
 a visible trace of what the machine is actually comparing each round, in the style of a
 computer-vision debug overlay — tracking boxes, a crossing network of thin lines, real
@@ -319,23 +484,28 @@ backup of the project from just before this step was built is kept alongside thi
 
 ## Backups
 
-There is no git repository yet (see the progress list). Until there is, snapshots of the
-whole project are taken by hand before anything exploratory, at
-`../backups/` and, for whole-folder copies kept to work from, siblings of this folder (e.g.
-`../what-we-sound-like(1)`, the copy this file is in — made 2026-11-13, right before step 10
-was built, from the project as it stood after step 9). If something needs undoing, the
-previous copy still has the old code; ask to roll back to it rather than trying to hand-edit
-your way back.
+Git is not installed on this computer yet. Until it is, snapshots of the whole project are
+taken by hand before anything exploratory, at `../backups/` and, for whole-folder copies
+kept to work from, siblings of this folder (`../what-we-sound-like(1)`, `(2)`…). This file
+is in `what-we-sound-like(2)`. The newest backup,
+`../backups/what-we-sound-like(2)_2026-11-20_before-two-screens`, is this folder just
+before the two-screen redesign. If something needs undoing, the previous copy still has
+the old code; ask to roll back to it rather than trying to hand-edit your way back.
 
 ## What each file is for
 
 ```
 what-we-sound-like/
-├─ index.html          The piece: lays out the page, loads p5 and our program
+├─ index.html          The sound screen, and the engine: loads p5 and our program
+├─ semantic.html       The semantic screen, for the second display (it only draws)
 ├─ credits.html        Library and credits: every image and sound with author and license
 ├─ style.css           Looks: colors, fonts, positions
+├─ DESIGN-two-screens.md  The two-screen redesign: decisions and plan (in Chinese)
 ├─ src/                The website's program (runs in the browser)
-│  ├─ main.js          Main entry of the piece; every part is plugged in from here
+│  ├─ main.js          The engine: every part is plugged in from here; results go on the bus
+│  ├─ screens.js       Sets up index.html's screens (one, or both with ?view=both)
+│  ├─ semantic-main.js Entry of semantic.html
+│  ├─ replay-main.js   Entry of index.html with ?replay=… (plays a recording into the screens)
 │  ├─ config.js        All adjustable settings (rhythm, model names…)
 │  ├─ library.js       Loads data/manifest.json
 │  ├─ session-stats.js Counts rounds, timings and skips for the debug panel's summary line
@@ -344,22 +514,35 @@ what-we-sound-like/
 │  │  ├─ capture.js         Microphone or recording → one segment every 5 s
 │  │  ├─ capture-worklet.js Runs on the audio thread, collects raw samples
 │  │  ├─ resample.js        Converts a segment to 48 kHz (CLAP) and 16 kHz (Whisper)
-│  │  └─ player.js          Plays each chosen sound for 10 s with fades; layers overlap
+│  │  ├─ player.js          Plays each chosen sound for 10 s with fades; layers overlap
+│  │  └─ texture-worklet.js Granular texture on each nature sound, stronger with mismatch
 │  ├─ sound/
 │  │  └─ sound-choice.js    Ranks library sounds against the voice, picks one (rest, bonus, draw)
 │  ├─ semantic/
 │  │  ├─ transcript.js      Tidies Whisper's text, drops phrases it hears in noise
+│  │  ├─ words.js           Splits a transcript into words, skips repeats, keeps the ring of words
 │  │  └─ llm-label.js       Asks the LLM for a label: prompt, key, remembered answers
 │  ├─ image/
 │  │  └─ image-choice.js    Picks a label's next image: shuffle bag, recent ones avoided
 │  ├─ log/
 │  │  └─ round-log.js       Records every round; downloads the log as JSON or CSV
-│  ├─ visuals/
-│  │  ├─ visuals.js         The p5 sketch: images, energy, mismatch, settings → the shader
-│  │  ├─ hud.js             The embedding HUD: a 2D overlay of real candidates and scores
-│  │  └─ shaders/
-│  │     ├─ image.vert      Places the rectangle that covers the screen
-│  │     └─ image.frag      Colours every pixel: grid, warp, colour, dissolve, outline, grain
+│  ├─ shared/
+│  │  ├─ bus.js             How the engine and the screens talk (BroadcastChannel), and every message type
+│  │  ├─ match.js           The category × label table → a mismatch lookup
+│  │  └─ replay.js          Records what the screens were shown; plays it back
+│  ├─ views/
+│  │  ├─ hud-kit.js         The HUD look both screens share: boxes, jitter, white → red, gold
+│  │  ├─ sound/
+│  │  │  ├─ sound-view.js          The sound screen: candidate boxes, their lines, the gold one
+│  │  │  ├─ vector-ring.js         The CLAP vector, drawn as a ring of 512 rays
+│  │  │  ├─ sound-visualization.js The live input spectrum, a small ring at the centre
+│  │  │  └─ input-spectrum.js      FFT of the latest input → log-spaced bands
+│  │  └─ semantic/
+│  │     ├─ semantic-view.js The p5 sketch: images, energy, mismatch, settings → the shader
+│  │     ├─ word-overlay.js  The ring of words, the label boxes and their lines (2D, over the image)
+│  │     └─ shaders/
+│  │        ├─ image.vert    Places the rectangle that covers the screen
+│  │        └─ image.frag    Colours every pixel: grid, warp, colour, dissolve, outline, grain
 │  ├─ workers/
 │  │  ├─ worker-client.js   Lets the page call a Web Worker like a function
 │  │  ├─ sound-worker.js    Runs CLAP off the main thread
@@ -375,6 +558,7 @@ what-we-sound-like/
 │  │                    and writes data/manifest.json
 │  ├─ check-speech.mjs  Finds sounds with human voices in them (AST), excludes them
 │  ├─ build-vectors.mjs Runs CLAP on every library sound, writes data/sound-vectors.json
+│  ├─ build-ring-order.mjs Orders CLAP's 512 dimensions for the sound screen's ring → data/vector-ring.json
 │  ├─ try-sound.mjs     Lists the library sounds closest to any WAV file
 │  ├─ reference-voices/ Recordings of people talking, averaged into "an average voice" (centering)
 │  └─ lib/              Shared helpers: wav.mjs (read/write WAV), loudness.mjs, clap.mjs
@@ -384,7 +568,8 @@ what-we-sound-like/
 ├─ assets/             Images and sounds for the site (generated, not in git)
 ├─ data/
 │  ├─ manifest.json     The asset list the site reads (generated)
-│  └─ sound-vectors.json One CLAP vector per library sound (generated)
+│  ├─ sound-vectors.json One CLAP vector per library sound (generated)
+│  └─ vector-ring.json   The ring's dimension order and scale (generated by build:ring)
 ├─ server/             LLM relay that hides the API key (added in step 12)
 └─ package.json        npm dependencies and commands of the offline tools; the site itself needs no npm
 ```
@@ -399,7 +584,8 @@ or when a new snapshot is ready, run in this folder:
 npm run build
 ```
 
-This runs three steps, which can also be run one at a time:
+This runs four steps, which can also be run one at a time (the fourth, `npm run
+build:ring`, is described under "The sound screen"):
 
 - `npm run check:speech` listens to every sound in the snapshot with AST, a model that
   recognises 527 kinds of sound (AudioSet), and excludes recordings with people talking,
@@ -510,6 +696,10 @@ more representative: add WAV files there and run `npm run build:vectors`.
 - [ ] Step 8 · Timing and stability (built and run for 10 minutes; the speaker test is left)
 - [x] Step 9 · Experiment logging
 - [x] Step 10 · Visuals v2 (mismatch-driven shader; the discarded, simpler v1 is in a backup)
-- [ ] Step 11 · Visual iterations + dataset finalization
+- [ ] Step 11 · Visual iterations + dataset finalization, now the two-screen redesign
+      (`DESIGN-two-screens.md`): 1 split into two screens + replay ✓ (2026-11-20) ·
+      2 sound screen ✓ (2026-11-20, built; **the look still needs tuning later**: it reads
+      as stiff, see "待调整" in DESIGN-two-screens.md) · 3 semantic screen ✓ (2026-11-20) ·
+      4 docs and visuals-lab · 5 dataset
 - [ ] Step 12 · Deployment
 - [ ] Step 13 · Audience testing and delivery

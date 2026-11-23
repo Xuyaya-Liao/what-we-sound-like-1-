@@ -22,23 +22,89 @@ body {
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
-/* Canvas container: pinned to fill the window, on the bottom layer */
-#stage {
+/* The screens (two-screen redesign): pinned to fill the window, on the bottom layer.
+   Normally one screen fills it; with ?view=both (body.view-both) the sound and the
+   semantic screen share it, side by side. */
+#screens {
   position: fixed;
   inset: 0;
   z-index: 0;
+  display: flex;
 }
 
-#stage canvas {
+.screen {
+  position: relative; /* the HUD canvas inside is placed relative to this */
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+.screen[hidden] {
+  display: none;
+}
+
+.view-both .screen + .screen {
+  border-left: 1px solid #222;
+}
+
+.screen canvas {
   display: block;
 }
 
-/* The embedding HUD (step 10): a plain 2D layer drawn over the WebGL canvas.
-   pointer-events: none so it never blocks clicks on anything underneath. */
-.visuals-hud {
+/* Horizontal scanlines over the sound screen, like the semantic screen's shader
+   (its lines repeat about every 4.5 px). Faint light lines so they show on black,
+   and darker bands that dim whatever is drawn under them. */
+#sound-screen::after {
+  content: "";
   position: absolute;
   inset: 0;
   z-index: 1;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.045) 0px,
+    rgba(255, 255, 255, 0.045) 1px,
+    rgba(0, 0, 0, 0.28) 2px,
+    rgba(0, 0, 0, 0.28) 3.5px,
+    transparent 4.5px
+  );
+}
+
+/* A 2D canvas filling its screen (the sound screen's ring) */
+.screen-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* semantic.html, until the engine is first heard from */
+.waiting {
+  position: fixed;
+  inset: auto 0 24px;
+  z-index: 3;
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.waiting[hidden] {
+  display: none;
+}
+
+/* The semantic screen's overlay (words and labels): a plain 2D layer drawn over the
+   WebGL canvas. pointer-events: none so it never blocks clicks on anything underneath.
+   width/height 100% matter: the canvas has more pixels than CSS pixels on a scaled
+   screen (e.g. Windows at 150%), and without them it was shown that much bigger, so
+   the ring and the lines sat off to the bottom right (fixed 2026-11-20). */
+.visuals-hud {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
   pointer-events: none;
 }
 

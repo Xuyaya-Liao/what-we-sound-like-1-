@@ -67,9 +67,7 @@ uniform float uTime;        // seconds
 uniform float uTransition;  // 0 = just switched … 1 = fully switched over
 
 // ---- The numbers that drive almost everything ----
-uniform float uMismatch;      // mismatch for the CURRENT image/sound pairing, 0–1
-uniform float uPrevMismatch;  // mismatch the PREVIOUS pairing had, frozen at the
-                               // moment of the switch, for an eased handover
+uniform float uMismatch;      // mismatch right now, 0–1, already eased (semantic-view.js)
 uniform float uEnergy;        // the voice's volume, 0–1 — a light, secondary role only
 uniform float uActivity;      // 1 while a switch is under way, easing down to a calmer
                                // baseline once the image has settled (see visuals.js) —
@@ -85,6 +83,8 @@ uniform float uJitterAmount;
 uniform float uScanlineAmount;
 uniform float uGridFine;      // grid cell size in pixels when mismatch = 0 (small = fine)
 uniform float uGridCoarse;    // grid cell size in pixels when mismatch = 1 (large = chunky)
+uniform vec2 uOrigin;         // where a new image spreads out from, 0–1 (top-left = 0, 0)
+uniform float uSpreadRoughness; // how ragged the spreading edge is (more with mismatch)
 uniform float uDissolveGrid;  // the dissolve's OWN cell size in pixels, fixed — not scaled
                                // by mismatch, so a new image always arrives in small,
                                // quick pieces rather than big slow blocks
@@ -186,11 +186,14 @@ void main() {
   vec2 uv = vTexCoord;
   float aspect = uResolution.x / uResolution.y;
 
-  // The mismatch in effect RIGHT NOW. Mid-transition it eases from the old
-  // pairing's value to the new one's, so the whole LOOK morphs as the image
-  // changes, rather than the picture changing while the "mood" snaps instantly.
-  float easeT = smoothstep(0.0, 1.0, clamp(uTransition, 0.0, 1.0));
-  float m = mix(uPrevMismatch, uMismatch, easeT);
+  // The mismatch in effect RIGHT NOW. It eases from the old value to the new one,
+  // so the whole LOOK morphs rather than snapping. The easing happens in
+  // semantic-view.js, every frame (CONFIG.visuals.mismatchEaseSeconds), so it
+  // covers both a new image arriving and a new sound changing the current image's
+  // mismatch while it is on screen. (Until 2026-11-20 it was done here, between a
+  // value frozen at the switch and the live one; the frozen value turned out to be
+  // the new one already, and a new sound made the look jump.)
+  float m = uMismatch;
 
   // ---- Grid ----
   // A perfectly straight checkerboard looked too mechanical, so the grid itself
@@ -261,17 +264,23 @@ void main() {
   vec3 current = uHasCurrent > 0.5 ? sampleImage(uCurrent, uCurrentSize, uCurrentZoom, sampleUv, split) : empty;
   vec3 previous = uHasPrevious > 0.5 ? sampleImage(uPrevious, uPreviousSize, uPreviousZoom, sampleUv, split) : empty;
 
-  // ---- Dissolve: the new image appears cell by cell, in a scattered order ----
-  // Its own grid, always fine and NOT scaled by mismatch — a highly mismatched
-  // image should still arrive in small, quick pieces, not big slow ones. Each
-  // cell's own random value decides when it flips to the new image, as a sweep
-  // (uTransition) passes through 0–1; a higher mismatch scrambles that ORDER
-  // further (not the cell size), so a very mismatched new image arrives more
-  // chaotically without the pieces themselves getting any bigger.
+  // ---- The new image spreads out from the chosen label (step 3 of the redesign) ----
+  // Until 2026-11-20 every cell flipped at a random moment, all over the picture.
+  // Now a cell flips when the spreading front reaches it: the front starts at
+  // uOrigin (the chosen label's box on screen) and grows until it has covered the
+  // farthest corner. Each cell still gets a little randomness, on its own fixed,
+  // fine grid (uDissolveGrid), so the front's edge is broken into small pieces
+  // rather than a clean circle. A higher mismatch makes that edge more ragged.
   vec2 dissolveId = floor(warpedUv * uResolution / uDissolveGrid);
   float dissolveRandom = hash(dissolveId + 500.0); // +500: a different pattern from cellRandom
-  float scatter = dissolveRandom + (hash(dissolveId + 133.0) - 0.5) * uMismatch * 0.5;
-  float edge = 0.12;
+  vec2 cellCentre = (dissolveId + 0.5) * uDissolveGrid / uResolution;
+  vec2 toOrigin = (cellCentre - uOrigin) * vec2(aspect, 1.0); // measured in screen heights
+  // The farthest corner from the origin, so the front always covers everything
+  vec2 farCorner = vec2(max(uOrigin.x, 1.0 - uOrigin.x) * aspect, max(uOrigin.y, 1.0 - uOrigin.y));
+  float reach = length(toOrigin) / length(farCorner); // 0 at the origin … 1 at the farthest corner
+  float roughness = uSpreadRoughness * (1.0 + m);
+  float scatter = reach * (1.0 - roughness) + dissolveRandom * roughness;
+  float edge = 0.06;
   float front = uTransition * (1.0 + 2.0 * edge) - edge;
   float shown = smoothstep(scatter - edge, scatter + edge, front);
   vec3 colour = mix(previous, current, shown);
@@ -319,5 +328,7 @@ void main() {
   colour *= 1.0 - uVignette * smoothstep(0.4, 1.0, corner);
   colour += (hash(uv * uResolution + fract(uTime) * 97.0) - 0.5) * uGrain * (0.6 + 0.4 * m);
 
-  gl_FragColor = vec4(colour, 1.0);
+  // (The live input spectrum used to be painted in here too; since the two-screen
+  // redesign it has its own screen — src/views/sound/.)
+  gl_FragColor = vec4(clamp(colour, 0.0, 1.0), 1.0);
 }

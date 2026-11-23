@@ -1,28 +1,38 @@
 <!doctype html>
 <!--
-  index.html: the entry point of the website.
+  index.html: the entry point of the website, and the SOUND screen ("how we say it").
   This is the first file the browser reads. It only does three things:
     1. Load the styles (style.css) and the libraries we use (p5.js)
-    2. Lay out the basic page elements (canvas container, start screen)
+    2. Lay out the basic page elements (the screens, the start screen)
     3. Load our own program (src/main.js)
+  This page is also the "engine": it listens, runs the models and plays the nature
+  sounds. The SEMANTIC screen ("what we say") is semantic.html, opened in a second
+  window on the second display; it follows this page by itself (src/shared/bus.js).
+  With ?view=both, both screens are shown side by side in this one window.
+  See DESIGN-two-screens.md.
 -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>What We Sound Like, What We Say</title>
+  <title>What We Sound Like · sound</title>
   <link rel="stylesheet" href="./style.css">
 
-  <!-- p5.js draws the visuals. It is loaded from a CDN (a public library host).
-       The version (2.3.4) is pinned, the same one the demo used, so an automatic
-       library update can never change how the piece looks. -->
+  <!-- p5.js draws the semantic screen's image (needed here only for ?view=both).
+       It is loaded from a CDN (a public library host). The version (2.3.4) is
+       pinned, the same one the demo used, so an automatic library update can
+       never change how the piece looks. -->
   <script src="https://cdn.jsdelivr.net/npm/p5@2.3.4/lib/p5.min.js"></script>
 </head>
 <body>
-  <!-- The p5 canvas goes into this box. It fills the window, on the bottom layer. -->
-  <div id="stage"></div>
+  <!-- The screens fill the window, on the bottom layer. The semantic one only
+       appears with ?view=both (then the two share the window, side by side). -->
+  <div id="screens">
+    <div id="sound-screen" class="screen"></div>
+    <div id="semantic-screen" class="screen" hidden></div>
+  </div>
 
-  <!-- Start screen, layered on top of the canvas.
+  <!-- Start screen, layered on top of the screens.
        "Begin" asks for microphone permission. Browsers only allow the microphone
        and sound playback after the visitor clicks something, which is why the
        piece needs this button at all.
@@ -41,11 +51,19 @@
       <div id="loading-fill" class="loading-fill"></div>
     </div>
     <p id="status" role="status">Loading…</p>
-    <a class="small-link" href="./credits.html">Library and credits</a>
+    <p class="small-link">
+      <a href="./semantic.html" target="wwsl-semantic">Open the semantic screen</a> ·
+      <a href="./credits.html">Library and credits</a>
+    </p>
   </main>
 
   <!-- Our own program. type="module" makes it a "module", which means it can
-       use import to pull in code from other files (see the first line of src/main.js). -->
-  <script type="module" src="./src/main.js"></script>
+       use import to pull in code from other files (see the first line of src/main.js).
+       With ?replay=… (see src/shared/replay.js) a recording is played into the
+       screens instead, and the engine isn't loaded at all. -->
+  <script type="module">
+    const replay = new URLSearchParams(location.search).has("replay");
+    import(replay ? "./src/replay-main.js" : "./src/main.js");
+  </script>
 </body>
 </html>

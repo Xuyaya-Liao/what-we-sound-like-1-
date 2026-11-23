@@ -1,14 +1,15 @@
-{
+﻿{
   "name": "what-we-sound-like",
   "version": "0.0.0",
   "private": true,
   "description": "What We Sound Like, What We Say. npm is only used by the offline tools in tools/; the website itself runs without npm.",
   "type": "module",
   "scripts": {
-    "build": "npm run check:speech && npm run build:assets && npm run build:vectors",
+    "build": "npm run check:speech && npm run build:assets && npm run build:vectors && npm run build:ring",
     "check:speech": "node tools/check-speech.mjs",
     "build:assets": "node tools/build-assets.mjs",
     "build:vectors": "node tools/build-vectors.mjs",
+    "build:ring": "node tools/build-ring-order.mjs",
     "try-sound": "node tools/try-sound.mjs"
   },
   "dependencies": {
