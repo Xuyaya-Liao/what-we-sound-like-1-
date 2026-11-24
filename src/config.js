@@ -335,14 +335,14 @@ export const CONFIG = {
   },
 
   // Playback of the nature sounds (step 4).
-  // Each chosen sound plays for `seconds` (its 5-second clip, repeated), fading in at
-  // the start and out at the end. A new one starts every round (5 s), so with 10 s
-  // two sounds always overlap and blend into each other instead of switching.
+  // Each chosen sound fades in and repeats its 5-second clip with no gap, until the
+  // next sound is chosen (it then fades out under the new one: a crossfade) or the
+  // screens go dark (2026-11-24; before, each played 10 s and stopped, leaving silence
+  // whenever a round chose no new sound).
   playback: {
     textureMix: 0.35, // maximum granular wet mix at mismatch 1; at least 65% remains dry
-    volume: 0.7, // 0 = silent, 1 = full (two sounds overlap, so leave some room)
-    seconds: 10, // how long each chosen sound plays
-    fadeSeconds: 2.5, // fade-in at the start of each sound
-    fadeOutSeconds: 3.2, // gentle fade to silence at the end, after granular processing
+    volume: 0.7, // 0 = silent, 1 = full (two sounds overlap while crossfading, so leave some room)
+    fadeSeconds: 2.5, // fade-in of each new sound
+    fadeOutSeconds: 3.2, // fade-out of the sound before it, starting as the new one fades in
   },
 };

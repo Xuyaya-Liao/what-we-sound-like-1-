@@ -219,10 +219,13 @@ How the next sound is chosen (all set in `src/config.js` under `soundChoice`):
 4. One candidate is **drawn at random**: the better the score, the likelier, but not certain
    (`temperature`; smaller = almost always the best).
 
-Each chosen sound plays for 10 seconds (its 5-second clip twice), fading in over 2.5 s
-and out over the last 3.2 s. A new one starts every round, so two sounds always overlap
-and blend instead of switching. Quiet rounds start nothing new, so in silence the last
-sound simply fades away. Length, fades and volume are under `playback`.
+Each chosen sound fades in over 2.5 s and then repeats its 5-second clip with no gap,
+for as long as it is the latest one. When the next sound is chosen, the old one fades
+out over 3.2 s under the new one's fade-in (a crossfade), so there is never a silent gap
+between rounds: a round that chooses nothing new (no words, CLAP busy) just lets the
+current sound carry on. Only the dark screen (`darkAfterSilentRounds`, see "No words, no
+picture") fades it out. Fades and volume are under `playback`. (Changed 2026-11-24:
+before, each sound played 10 s and stopped, which left silences.)
 
 Each sound also passes through a **granular texture** (`src/audio/texture-worklet.js`)
 before its fade: short overlapping grains and a little saturation, blended with the

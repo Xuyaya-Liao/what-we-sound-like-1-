@@ -526,7 +526,7 @@ async function soundPath(samples, round, cutAt, transcript) {
       player?.setMismatch(live.mismatch);
       publish("mismatch", { value: live.mismatch, soundCategory: live.soundCategory, label: live.label });
     }
-    // 10 s, fading in over whatever is still playing. Its live waveform and spectrum
+    // Fades in and repeats until the next sound, while the one before fades out. Its live waveform and spectrum
     // go into its box on the sound screen (only on this page: audio can't be sent
     // to another window, and a replay plays no sound).
     const analyser = await player.play(choice.chosen.sound.file);

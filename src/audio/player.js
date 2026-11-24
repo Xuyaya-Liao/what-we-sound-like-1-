@@ -1,16 +1,18 @@
 // player.js: plays the chosen nature sounds as overlapping, fading layers.
 //
-// Every chosen sound plays once for CONFIG.playback.seconds (10 s: its 5-second clip
-// twice), with a fade-in at the start and a fade-out at the end:
+// Every chosen sound fades in and then repeats its clip for as long as it is the
+// latest one, with no gap (2026-11-24; before, each played for 10 s and stopped, so a
+// round without a new sound left silence). When the next sound is chosen, it fades in
+// while the one before fades out under it (a crossfade):
 //
-//   volume
-//     1 |      ____________
-//       |    /              \
-//     0 |___/                \___
-//         0  2.5          6.8  10 s
+//   volume       new sound chosen
+//     1 |      ________|
+//       |    /         |\        old
+//     0 |___/          | \___
+//                      |  /‾‾‾‾‾‾‾‾  new, repeating until the next one
 //
-// A new sound starts every 5 seconds, so it fades in while the previous one is still
-// playing, and the previous one fades out under it. Nothing ever switches abruptly.
+// stop() (the dark screen, a recording ending) fades everything out. Nothing ever
+// switches abruptly.
 //
 //   each sound ──▶ granular texture ──▶ its own fade envelope ──▶ master ──▶ speakers
 
@@ -84,21 +86,19 @@ export async function createPlayer(context) {
         texture.parameters.get("mismatch").setTargetAtTime(mismatch, context.currentTime, 0.18);
       }
     },
-    // Plays one sound for CONFIG.playback.seconds, fading in and out, on top of
-    // whatever is already playing. Returns an AnalyserNode listening to this sound
-    // alone, after its fades (for the sound screen's playing box), or undefined if
-    // playback was stopped while the file loaded.
+    // Fades one sound in and keeps it repeating, while every sound already playing
+    // fades out under it. Returns an AnalyserNode listening to this sound alone,
+    // after its fades (for the sound screen's playing box), or undefined if playback
+    // was stopped (or a newer sound was asked for) while the file loaded.
     async play(file) {
-      const ticket = generation;
+      const ticket = ++generation;
       const buffer = await load(file);
       if (ticket !== generation) return;
-      const seconds = CONFIG.playback.seconds;
-      const fade = Math.min(CONFIG.playback.fadeSeconds, seconds / 2);
-      const fadeOut = Math.min(CONFIG.playback.fadeOutSeconds, seconds - fade);
+      const fade = CONFIG.playback.fadeSeconds;
 
       const source = context.createBufferSource();
       source.buffer = buffer;
-      source.loop = true; // a 5-second clip plays twice to fill 10 seconds
+      source.loop = true; // the clip repeats until the next sound replaces it
       const gain = context.createGain();
       gain.gain.value = 0; // silent until the fade-in begins
       // Process each voice before its envelope: granular tails fade with that voice.
@@ -116,13 +116,12 @@ export async function createPlayer(context) {
       analyser.smoothingTimeConstant = 0.7;
       gain.connect(analyser);
 
-      // Schedule the whole envelope in advance; the browser carries it out exactly.
+      // Fade in; no end is scheduled: it repeats until the next sound or stop().
+      // The sounds already playing fade out from the same moment: a crossfade.
       const start = context.currentTime + 0.05;
+      for (const other of playing) fadeAway(other, start, CONFIG.playback.fadeOutSeconds);
       gain.gain.setValueCurveAtTime(FADE_IN, start, fade);
-      gain.gain.setValueCurveAtTime(FADE_OUT, start + seconds - fadeOut, fadeOut);
-      gain.gain.setValueAtTime(0, start + seconds);
       source.start(start);
-      source.stop(start + seconds);
 
       const sound = { source, texture, gain };
       playing.add(sound);
@@ -135,22 +134,33 @@ export async function createPlayer(context) {
       return analyser;
     },
 
-    // Fades out everything that is playing (e.g. when a recording ends).
+    // Fades out everything that is playing (the dark screen, a recording ending).
     stop() {
       generation++;
       const now = context.currentTime;
-      for (const { source, gain } of playing) {
-        // Freeze the envelope where it is… (older browsers: cancel, then pin the current value)
-        if (gain.gain.cancelAndHoldAtTime) {
-          gain.gain.cancelAndHoldAtTime(now);
-        } else {
-          const current = gain.gain.value;
-          gain.gain.cancelScheduledValues(now);
-          gain.gain.setValueAtTime(current, now);
-        }
-        gain.gain.linearRampToValueAtTime(0, now + STOP_SECONDS); // …and fade from there
-        source.stop(now + STOP_SECONDS);
-      }
+      for (const sound of playing) fadeAway(sound, now, STOP_SECONDS);
     },
   };
+
+  // Fades one sound out from wherever its volume is at `from` (even halfway through
+  // its fade-in), over `seconds`, then stops it. A sound already fading out keeps
+  // its own, earlier end.
+  function fadeAway(sound, from, seconds) {
+    const { source, gain } = sound;
+    if (sound.endsAt !== undefined && sound.endsAt <= from + seconds) return;
+    const now = context.currentTime;
+    from = Math.max(from, now);
+    // Freeze the envelope where it is… (older browsers: cancel, then pin the current value)
+    const current = gain.gain.value;
+    if (gain.gain.cancelAndHoldAtTime) {
+      gain.gain.cancelAndHoldAtTime(now);
+    } else {
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setValueAtTime(current, now);
+    }
+    // …and fade from there, with the same smooth shape as always
+    gain.gain.setValueCurveAtTime(FADE_OUT.map((step) => step * current), from + 0.001, seconds);
+    sound.endsAt = from + 0.001 + seconds;
+    source.stop(sound.endsAt + 0.02);
+  }
 }
