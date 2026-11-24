@@ -158,6 +158,18 @@ export const CONFIG = {
     // middle and its spectrum as bars, mirrored (src/views/sound/sound-view.js)
     playingBoxWidth: 200, // at least this big, so there is room for it
     playingBoxHeight: 86,
+    // The chosen sound's own vector (2026-11-24): the same kind of ring as the voice's,
+    // same dimension order and scale, so the two shapes can be compared. It never
+    // changes for a given sound, so it holds still (only its rays breathe).
+    //   · behind the playing box, as a ring round it; chosenRingReach is its rays'
+    //     length, as a fraction of its radius (which follows the box's size)
+    //   · on the voice's ring, as a faint dashed gold outline of the same shape, at
+    //     compareOutline opacity (0 = off): where the two outlines bulge together is
+    //     where the voice and the sound agree
+    chosenRingSize: 0.92, // its radius, as a fraction of the box's half-width (was ~1.1, a little smaller 2026-11-24)
+    chosenRingReach: 0.32,
+    chosenRingGrowSeconds: 1, // the ring grows out of its bare circle when the sound is chosen
+    compareOutline: 0.55,
     // The candidate sounds. Each sound category has its own fixed direction around
     // the ring (the order of config/sound-categories.json, clockwise from the top), so
     // over time "rain lives up and to the right". The most similar candidate sits
@@ -197,6 +209,11 @@ export const CONFIG = {
     // lines mean something and a few are surprises. (4 looked too sparse, 2026-11-20.)
     otherLabels: 9,
     labelFadeSeconds: 0.5, // the last round's label boxes fade out over this (short, so two rounds' boxes don't pile up)
+    // The chosen label's box shows the chosen image, small, below its text, cropped to
+    // fit (2026-11-24). The box is at least this big, to make room for it.
+    chosenBoxWidth: 150,
+    chosenBoxHeight: 104,
+    thumbnailOpacity: 0.92,
     // The new image spreads out from the chosen label's box, over transitionSeconds
     // (under visuals); its edge is broken up by the dissolve grid's noise
     spreadRoughness: 0.12,

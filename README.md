@@ -74,6 +74,9 @@ replacing the old embedding HUD (code: `src/views/semantic/word-overlay.js`, set
   off-centre: its canvas was shown at its pixel size instead of the screen's size. Stray
   characters ("�", left when Whisper's text ends halfway through a Chinese character, and
   invisible control characters) are now removed (`src/semantic/transcript.js`, `words.js`).
+- **The chosen label's box shows the chosen image** (2026-11-24): a small thumbnail below
+  its text, cropped to the middle of the picture to fill the box (not squashed). The box is
+  at least `chosenBoxWidth` × `chosenBoxHeight`; opacity `thumbnailOpacity`.
 - **The new image spreads out from the chosen label's box** (`uOrigin` in the shader),
   with a ragged edge on the dissolve grid, more ragged the higher the mismatch.
 
@@ -105,6 +108,19 @@ On black, from the centre out (code: `src/views/sound/`, settings: `soundScreen`
   spectrum as mirrored bars (an AnalyserNode on that one sound, after its fades, in
   `src/audio/player.js`). In a replay no sound plays, so the box shows a flat line. Every other box and line is white → red by how badly its category fits the
   image on the semantic screen right now.
+- **The chosen sound's own vector** (2026-11-24), so the visitor can see why it was chosen:
+  - a gold ring round the playing box, drawn exactly like the voice's ring (same
+    dimension order, same scale, both centered), but still: a library sound's vector never
+    changes, so only its rays breathe. It grows out of its bare circle when the sound is
+    chosen and fades with its round. The box keeps a little further out (and on screen)
+    to make room for it.
+  - the same shape as a faint dashed gold outline on the voice's ring, moving with the
+    voice ring's undulation. Where the white and the gold outlines bulge together, the
+    voice and the sound agree. The similarity is over all 512 dimensions, so the two
+    shapes are alike only in their broad bulges, never ray by ray.
+  - settings: `chosenRingReach`, `chosenRingGrowSeconds`, `compareOutline` (0 = no
+    outline). The engine sends the vector as `chosenVector` in the bus's `sound` message;
+    recordings made before 2026-11-24 don't have it, so their replays show neither.
 
 **Why the dimensions are reordered.** CLAP's 512 numbers come in no particular order;
 drawn as given, every voice looked like the same random fuzz. `npm run build:ring`

@@ -520,6 +520,11 @@ async function soundPath(samples, round, cutAt, transcript) {
       candidates: live.soundCandidates,
       centering: choice.centering,
       vector: rounded(choice.compared),
+      // The chosen sound's own vector, as it was compared (centered: minus the average
+      // nature sound). Never changes for a given sound: the sound screen draws it as a
+      // fixed ring behind the playing box, and as a faint outline on the voice's ring,
+      // so the two shapes can be compared (2026-11-24)
+      chosenVector: rounded(choice.centering ? choice.chosen.sound.centered : choice.chosen.sound.vector),
     });
     if (live.label) {
       live.mismatch = 1 - match(live.soundCategory, live.label);

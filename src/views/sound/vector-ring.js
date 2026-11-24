@@ -97,7 +97,92 @@ export function createVectorRing(layout) {
 
   const cap = (value) => Math.max(-INWARD_CAP, Math.min(OUTWARD_CAP, value));
 
+  // A vector (in CLAP's own order) → its shape on the ring: { raw, smooth }, one value
+  // per ray, in rayReach units. Used for the voice and for the chosen sound alike, so
+  // the same dimension is always at the same angle and the shapes can be compared.
+  function shapeOf(vector) {
+    const raw = new Float32Array(count);
+    const smooth = new Float32Array(count);
+    // Each dimension relative to how much it usually varies, then capped
+    for (let k = 0; k < count; k++) {
+      const dim = order[k];
+      raw[k] = cap(vector[dim] / scale[dim] / USUAL_AMOUNTS);
+    }
+    // The broad shape: a moving average around the ring (it wraps), then stretched
+    // so its bulges are as big as the raw rays' typical size
+    const half = settings.smoothRays;
+    let rawSpread = 0;
+    let smoothSpread = 0;
+    for (let k = 0; k < count; k++) {
+      let sum = 0;
+      for (let d = -half; d <= half; d++) sum += raw[(k + d + count) % count];
+      smooth[k] = sum / (2 * half + 1);
+      rawSpread += raw[k] ** 2;
+      smoothSpread += smooth[k] ** 2;
+    }
+    const stretch = Math.sqrt(rawSpread / Math.max(1e-9, smoothSpread));
+    for (let k = 0; k < count; k++) smooth[k] = cap(smooth[k] * stretch);
+    return { raw, smooth };
+  }
+
+  // How bright ray k is this moment, 0–1 (each ray on its own cycle)
+  const breathing = (k, t) => {
+    const breath = 0.5 + 0.5 * Math.sin(t * breathSpeed[k] + breathPhase[k]); // 0 … 1
+    return 1 - settings.breathDepth + settings.breathDepth * breath;
+  };
+
+  // A closed outline through the tips of `values` (rayReach units) round a circle
+  // of `base`, plus `wobble` (the voice ring's undulation, or nothing)
+  function outlinePath(context, values, base, length, wobble) {
+    context.beginPath();
+    for (let k = 0; k <= count; k++) {
+      const i = k % count;
+      const tip = base + (values[i] + (wobble ? wobble[i] : 0)) * length;
+      if (k === 0) context.moveTo(cos[i] * tip, sin[i] * tip);
+      else context.lineTo(cos[i] * tip, sin[i] * tip);
+    }
+  }
+
   return {
+    shapeOf: (vector) => (vector?.length === count ? shapeOf(vector) : undefined),
+
+    // A shape that never changes (the chosen sound's), drawn in gold round (0, 0):
+    // faint raw rays that breathe, a soft band and the smoothed outline. `grow` 0–1
+    // draws it out from the bare circle; `alpha` is its overall opacity.
+    drawFixed(ctx, now, shape, radius, reach, { alpha = 1, grow = 1, colour }) {
+      if (!shape || alpha <= 0.005) return;
+      const t = now / 1000;
+      const length = reach * grow;
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.strokeStyle = colour(1);
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.25 * alpha;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, 0, 2 * Math.PI);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+      for (let k = 0; k < count; k++) {
+        const value = shape.raw[k];
+        const strength = value > 0 ? 0.12 + 0.28 * Math.min(1, value) : 0.06 + 0.12 * Math.min(1, -value);
+        ctx.globalAlpha = strength * breathing(k, t) * alpha;
+        ctx.beginPath();
+        ctx.moveTo(cos[k] * radius, sin[k] * radius);
+        ctx.lineTo(cos[k] * (radius + value * length), sin[k] * (radius + value * length));
+        ctx.stroke();
+      }
+      ctx.fillStyle = colour(1);
+      ctx.globalAlpha = 0.05 * alpha;
+      outlinePath(ctx, shape.smooth, radius, length);
+      ctx.arc(0, 0, radius, 0, 2 * Math.PI, true);
+      ctx.fill("evenodd");
+      ctx.globalAlpha = 0.6 * alpha;
+      ctx.lineWidth = 1.1;
+      outlinePath(ctx, shape.smooth, radius, length);
+      ctx.stroke();
+      ctx.restore();
+    },
+
     // vector: the 512 numbers the sounds were compared with (in CLAP's own order)
     setVector(vector) {
       if (!vector || vector.length !== count) return;
@@ -105,25 +190,9 @@ export function createVectorRing(layout) {
       // The next morph starts from wherever the ring is now, even mid-way through the last
       from.set(shown);
       smoothFrom.set(smoothShown);
-      // Each dimension relative to how much it usually varies, then capped
-      for (let k = 0; k < count; k++) {
-        const dim = order[k];
-        target[k] = cap(vector[dim] / scale[dim] / USUAL_AMOUNTS);
-      }
-      // The broad shape: a moving average around the ring (it wraps), then stretched
-      // so its bulges are as big as the raw rays' typical size
-      const half = settings.smoothRays;
-      let rawSpread = 0;
-      let smoothSpread = 0;
-      for (let k = 0; k < count; k++) {
-        let sum = 0;
-        for (let d = -half; d <= half; d++) sum += target[(k + d + count) % count];
-        smoothTarget[k] = sum / (2 * half + 1);
-        rawSpread += target[k] ** 2;
-        smoothSpread += smoothTarget[k] ** 2;
-      }
-      const stretch = Math.sqrt(rawSpread / Math.max(1e-9, smoothSpread));
-      for (let k = 0; k < count; k++) smoothTarget[k] = cap(smoothTarget[k] * stretch);
+      const shape = shapeOf(vector);
+      target.set(shape.raw);
+      smoothTarget.set(shape.smooth);
       has = true;
       arrivedAt = performance.now();
       presenceTarget = 1;
@@ -150,7 +219,9 @@ export function createVectorRing(layout) {
 
     // radius, reach: in pixels. Returns the ring's outer edge (radius + its longest
     // outward ray), so the candidate boxes can keep clear of it.
-    draw(ctx, now, radius, reach) {
+    // compare: { shape, alpha, colour } — the chosen sound's shape, drawn over the
+    // voice's as a dashed outline that moves with the same undulation (optional)
+    draw(ctx, now, radius, reach, { compare } = {}) {
       // The morph: from the old shape to the new over morphSeconds, easing in and out
       const progress = Math.min(1, Math.max(0, (now - arrivedAt) / (settings.morphSeconds * 1000)));
       const eased = progress * progress * (3 - 2 * progress);
@@ -211,9 +282,7 @@ export function createVectorRing(layout) {
         const tip = radius + (value + drift[k]) * shapeReach;
         if (tip > outer) outer = tip;
         const strength = value > 0 ? 0.3 + 0.6 * Math.min(1, value) : 0.2 + 0.35 * Math.min(1, -value);
-        const breath = 0.5 + 0.5 * Math.sin(t * breathSpeed[k] + breathPhase[k]); // 0 … 1
-        const breathing = 1 - settings.breathDepth + settings.breathDepth * breath;
-        ctx.globalAlpha = Math.min(1, strength * breathing + 0.35 * flare) * presence;
+        ctx.globalAlpha = Math.min(1, strength * breathing(k, t) + 0.35 * flare) * presence;
         ctx.beginPath();
         ctx.moveTo(cos[k] * radius, sin[k] * radius);
         ctx.lineTo(cos[k] * tip, sin[k] * tip);
@@ -234,18 +303,25 @@ export function createVectorRing(layout) {
       outline(ctx, smoothShown, radius, shapeReach);
       ctx.stroke();
       for (let k = 0; k < count; k++) outer = Math.max(outer, radius + (smoothShown[k] + drift[k]) * shapeReach);
+
+      // The chosen sound's shape, over the voice's: thin, dashed, gold
+      if (compare?.shape && compare.alpha > 0.005) {
+        ctx.shadowBlur = 0;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = compare.colour(1);
+        ctx.globalAlpha = compare.alpha * presence;
+        ctx.lineWidth = 1.2;
+        outline(ctx, compare.shape.smooth, radius, shapeReach);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
       ctx.restore();
       return outer;
 
-      // Every outline (current and ghosts) carries the same undulation, so they move together
+      // Every outline (current, ghosts, the chosen sound's) carries the same
+      // undulation, so they move together and stay comparable
       function outline(context, values, base, length) {
-        context.beginPath();
-        for (let k = 0; k <= count; k++) {
-          const i = k % count;
-          const tip = base + (values[i] + drift[i]) * length;
-          if (k === 0) context.moveTo(cos[i] * tip, sin[i] * tip);
-          else context.lineTo(cos[i] * tip, sin[i] * tip);
-        }
+        outlinePath(context, values, base, length, drift);
       }
     },
   };

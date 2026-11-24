@@ -60,7 +60,7 @@ export function createSemanticView(container, bus, { onFirstMessage } = {}) {
   listen("image", (image) => {
     state.mismatch = image.mismatch;
     if (image.soundCategory) overlay.setSoundCategory(image.soundCategory);
-    const from = overlay.addRound(image.analysis);
+    const from = overlay.addRound(image.analysis, image.file);
     origin = [from.x, from.y];
     showPicture(image.file);
   });
@@ -85,7 +85,7 @@ export function createSemanticView(container, bus, { onFirstMessage } = {}) {
     if (words) overlay.setWords(words);
     if (image) {
       state.mismatch = image.mismatch;
-      overlay.addRound(image.analysis);
+      overlay.addRound(image.analysis, image.file);
       showPicture(image.file);
     }
     // A later sound may have changed how well that image fits

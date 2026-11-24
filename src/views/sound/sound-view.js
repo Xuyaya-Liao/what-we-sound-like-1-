@@ -98,7 +98,7 @@ export function createSoundView(container, bus) {
   });
 
   // ---- A round: where each candidate goes ----
-  function addRound({ candidates = [], chosen, vector }) {
+  function addRound({ candidates = [], chosen, vector, chosenVector }) {
     if (ring) ring.setVector(vector);
     else pendingVector = vector;
     if (!candidates.length) return;
@@ -138,7 +138,29 @@ export function createSoundView(container, bus) {
     });
     // Draw the chosen one last, so it sits on top
     boxes.sort((a, b) => a.chosen - b.chosen);
-    rounds = [{ since: now, boxes }, ...rounds].slice(0, 2);
+    // chosenVector: the chosen sound's own vector (older recordings don't have it);
+    // its ring shape is worked out on first draw, once the ring layout is loaded
+    rounds = [{ since: now, boxes, chosenVector }, ...rounds].slice(0, 2);
+  }
+
+  // 1 while a round is current, fading to 0 over roundFadeSeconds once replaced
+  function fadeOf(round, now) {
+    return round.endedAt === undefined ? 1 : Math.max(0, 1 - (now - round.endedAt) / (settings.roundFadeSeconds * 1000));
+  }
+
+  // How far the chosen sound's ring has grown out (0–1): from when its box appears,
+  // over chosenRingGrowSeconds, easing in and out
+  function growOf(round, now) {
+    const chosen = round.boxes.find((box) => box.chosen);
+    if (!chosen) return 0;
+    const x = Math.min(1, Math.max(0, ((now - round.since) / 1000 - chosen.appearsAfter) / settings.chosenRingGrowSeconds));
+    return x * x * (3 - 2 * x);
+  }
+
+  // The chosen sound's shape on the ring, once the layout is loaded
+  function shapeOfRound(round) {
+    if (!round.shape && ring && round.chosenVector) round.shape = ring.shapeOf(round.chosenVector);
+    return round.shape;
   }
 
   // ---- Every frame ----
@@ -162,11 +184,20 @@ export function createSoundView(container, bus) {
     const centreX = width / 2;
     const centreY = height / 2;
 
+    rounds = rounds.filter((round) => round.endedAt === undefined || now - round.endedAt < settings.roundFadeSeconds * 1000);
+    // The newest round's chosen sound, as a dashed gold outline on the voice's ring
+    const newest = rounds[0];
+    const compare = newest && {
+      shape: shapeOfRound(newest),
+      alpha: settings.compareOutline * growOf(newest, now) * fadeOf(newest, now),
+      colour: goldColour,
+    };
+
     ctx.save();
     ctx.translate(centreX, centreY);
     const sv = CONFIG.soundVisualization;
     spectrum.draw(ctx, now, short * sv.radius, short * sv.radialReach);
-    ring?.draw(ctx, now, short * settings.ringRadius, short * settings.rayReach);
+    ring?.draw(ctx, now, short * settings.ringRadius, short * settings.rayReach, { compare });
     ctx.restore();
 
     // Candidates: from just outside the ring's usual edge out to the screen's edges.
@@ -175,18 +206,44 @@ export function createSoundView(container, bus) {
     const farX = Math.max(nearest, width / 2 - short * MARGIN);
     const farY = Math.max(nearest, height / 2 - short * MARGIN);
     const t = now / 1000;
-    rounds = rounds.filter((round) => round.endedAt === undefined || now - round.endedAt < settings.roundFadeSeconds * 1000);
     for (let i = rounds.length - 1; i >= 0; i--) {
       const round = rounds[i];
-      const fade = round.endedAt === undefined ? 1 : 1 - (now - round.endedAt) / (settings.roundFadeSeconds * 1000);
+      const fade = fadeOf(round, now);
       const age = (now - round.since) / 1000;
+      // Where each box is this frame (boxes not yet appeared are left out)
+      const placed = [];
       for (const box of round.boxes) {
         if (age < box.appearsAfter) continue;
+        // The chosen box keeps a little further out, so the ring round it clears the
+        // voice's ring
+        const near = box.chosen ? nearest + chosenRingRadius(box) * 0.8 : nearest;
         // An ellipse rather than a circle, so a wide screen is used edge to edge
-        const reach = (far) => mix(nearest, far, box.distance);
-        const x = centreX + Math.cos(box.angle) * reach(farX);
-        const y = centreY + Math.sin(box.angle) * reach(farY);
-        const place = boxFrame(box, x, y, width, height, t, fade);
+        const reach = (far) => mix(near, Math.max(near, far), box.distance);
+        let x = centreX + Math.cos(box.angle) * reach(farX);
+        let y = centreY + Math.sin(box.angle) * reach(farY);
+        if (box.chosen) {
+          // …and keeps its ring's circle on screen
+          const keep = chosenRingRadius(box) + 6;
+          x = Math.min(width - keep, Math.max(keep, x));
+          y = Math.min(height - keep, Math.max(keep, y));
+        }
+        placed.push([box, boxFrame(box, x, y, width, height, t, fade)]);
+      }
+      // The chosen sound's own ring, round its box and under every box of the round
+      const chosenPlace = placed.find(([box]) => box.chosen);
+      if (chosenPlace && ring) {
+        const [box, place] = chosenPlace;
+        const radius = chosenRingRadius(box);
+        ctx.save();
+        ctx.translate(place.x, place.y);
+        ring.drawFixed(ctx, now, shapeOfRound(round), radius, radius * settings.chosenRingReach, {
+          alpha: place.opacity * fade,
+          grow: growOf(round, now),
+          colour: goldColour,
+        });
+        ctx.restore();
+      }
+      for (const [box, place] of placed) {
         const colour = box.chosen ? goldColour(place.opacity) : mismatchColour(mismatchOf(box), place.opacity);
         drawLink(box, place, centreX, centreY, short, t);
         if (box.chosen) {
@@ -201,6 +258,12 @@ export function createSoundView(container, bus) {
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+
+  // The chosen sound's ring goes round its box: about as wide as the box (chosenRingSize
+  // of its half-width; below 1, the box's ends overlap the circle a little)
+  function chosenRingRadius(box) {
+    return (Math.max(box.width, box.height) / 2) * settings.chosenRingSize;
+  }
 
   // How badly this candidate's category fits the image on screen now (white if no image yet)
   function mismatchOf(box) {

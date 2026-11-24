@@ -164,7 +164,9 @@ export function createWordOverlay(container) {
     // An image was chosen: its label, and the local ranking (for the other labels
     // and every label's size). Returns where the chosen label's box is, as a
     // fraction of the screen (0–1, 0–1), so the image can spread out from there.
-    addRound({ chosenLabel, labelCandidates = [] }) {
+    // file: the chosen image, shown small inside the chosen label's box (2026-11-24)
+    addRound({ chosenLabel, labelCandidates = [] }, file) {
+      const thumbnail = file ? loadThumbnail(file) : undefined;
       const now = performance.now();
       for (const round of rounds) round.endedAt ??= now;
       chosenIndex = labelIds.indexOf(chosenLabel);
@@ -216,8 +218,10 @@ export function createWordOverlay(container) {
         const size = boxSize(weight(entry), chosen, seed);
         const textWidth = (entry.id.length + 1) * (chosen ? 7.4 : 6.8) + 10;
         return {
-          width: Math.max(size.width, textWidth),
-          height: Math.max(size.height, 34),
+          // The chosen box is at least big enough for the image's thumbnail
+          width: Math.max(size.width, textWidth, chosen && thumbnail ? settings.chosenBoxWidth : 0),
+          height: Math.max(size.height, 34, chosen && thumbnail ? settings.chosenBoxHeight : 0),
+          thumbnail: chosen ? thumbnail : undefined,
           id: entry.id,
           labelIndex: index,
           chosen,
@@ -288,11 +292,42 @@ export function createWordOverlay(container) {
           const colour = gold ? goldColour(place.opacity) : mismatchColour(misfit, place.opacity);
           // The same plain box as the sound screen (no backing, no corner marks: 2026-11-21)
           ctx.globalAlpha = 1;
+          if (box.thumbnail) drawThumbnail(box.thumbnail, place);
           drawBox(ctx, box, place, colour, { glow: gold });
         }
       }
     },
   };
+
+  // ---- The chosen image, small, inside the chosen label's box ----
+  // Below the box's two lines of text, filling the rest of the box (cropped to fit,
+  // not squashed: the middle of the picture). Nothing until the file has loaded (the
+  // browser shares the download with the shader's copy of the same image).
+  function loadThumbnail(file) {
+    const image = new Image();
+    image.decoding = "async";
+    image.src = file;
+    return image;
+  }
+
+  function drawThumbnail(image, place) {
+    if (!image.complete || !image.naturalWidth) return;
+    const left = place.x - place.width / 2 + 5;
+    const top = place.y - place.height / 2 + 32; // below the label and its score
+    const w = place.width - 10;
+    const h = place.y + place.height / 2 - 5 - top;
+    if (w < 16 || h < 12) return;
+    // Crop the image's middle to the space's proportions
+    const scale = Math.max(w / image.naturalWidth, h / image.naturalHeight);
+    const cropW = w / scale;
+    const cropH = h / scale;
+    const sx = (image.naturalWidth - cropW) / 2;
+    const sy = (image.naturalHeight - cropH) / 2;
+    ctx.save();
+    ctx.globalAlpha = place.opacity * settings.thumbnailOpacity;
+    ctx.drawImage(image, sx, sy, cropW, cropH, left, top, w, h);
+    ctx.restore();
+  }
 
   // ---- The ring of words. Returns, for each slot, where a line should meet its word ----
   function drawRing(now, t, centreX, centreY, radius, reach, short) {
